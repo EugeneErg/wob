@@ -37,7 +37,8 @@ export default {
     [PROP.WEIGHT]: (state) => state.mass,
     [PROP.COLLISION]: true,
     [PROP.SMOOTHNESS]: (state) => state.smoothness,
-    [PROP.BONDABLE]: true, // шар всегда bondable
+    // Шар bondable только если уже часть конструкции (есть связи)
+    [PROP.BONDABLE]: (state) => state.bondCount > 0,
     [PROP.Z_INDEX]: 10,
   },
 

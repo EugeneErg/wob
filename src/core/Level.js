@@ -76,9 +76,7 @@ export function createLevel() {
     if (aId === bId) return
     const a = getInstance(aId)
     const b = getInstance(bId)
-    const defA = getEntityDefinition(a.type)
-    const defB = getEntityDefinition(b.type)
-    if (!readProperty(a, defA, PROP.BONDABLE) || !readProperty(b, defB, PROP.BONDABLE)) return
+    if (!a || !b) return
 
     if (connectionExists(aId, bId)) {
       removeConnection(aId, bId)
@@ -87,6 +85,7 @@ export function createLevel() {
 
     if (!a.points?.length || !b.points?.length) return
 
+    // Проверка maxBonds для обеих сторон (BONDABLE проверяется в UI)
     const aBonds = countBonds(aId)
     const bBonds = countBonds(bId)
     if (a.state?.maxBonds !== undefined && aBonds >= a.state.maxBonds) return
