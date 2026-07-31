@@ -59,9 +59,9 @@ const connections = computed(() =>
   })).filter((c) => c.a && c.b)
 )
 
-// --- drag + потенциальная связь ---
+// --- drag + потенциальные связи (World of Goo style) ---
 const dragging = ref(null)
-const potentialBond = ref(null)
+const potentialBonds = ref([]) // [{ instance, point }]
 const BOND_RANGE = 150
 
 const draggingPoint = computed(() => {
@@ -87,25 +87,15 @@ function maxBonds(instance) {
   return instance.state?.maxBonds ?? Infinity
 }
 
+function minBonds(instance) {
+  return instance.state?.minBonds ?? 1
+}
+
 function canAcceptBond(targetInstance, targetDef) {
   if (!readProperty(targetInstance, targetDef, PROP.BONDABLE)) return false
   const current = bondCount(targetInstance)
   const max = maxBonds(targetInstance)
   return current < max
-}
-
-function canCreateBond(sourceId, targetId) {
-  const source = props.level.getInstance(sourceId)
-  const target = props.level.getInstance(targetId)
-  if (!source || !target) return false
-  const sourceDef = getEntityDefinition(source.type)
-  const targetDef = getEntityDefinition(target.type)
-
-  const sourceCurrent = bondCount(source)
-  const sourceMax = maxBonds(source)
-  if (sourceCurrent >= sourceMax) return false
-
-  return canAcceptBond(target, targetDef)
 }
 
 function onPointerDown(e) {
@@ -128,17 +118,20 @@ function onPointerMove(e) {
   const { x, y } = toSvgCoords(e)
   inst.points[0].setPosition(x, y)
 
-  // Источник должен иметь свободный слот
-  const sourceCurrent = bondCount(inst)
-  const sourceMax = maxBonds(inst)
-  if (sourceCurrent >= sourceMax) {
-    potentialBond.value = null
+  // Сколько связей шар хочет/может создать
+  const current = bondCount(inst)
+  const max = maxBonds(inst)
+  const min = minBonds(inst)
+  const need = Math.max(min - current, 1) // хотя бы 1, иначе ничего не рисуем
+  const slots = max - current
+  if (slots <= 0) {
+    potentialBonds.value = []
     return
   }
+  const take = Math.min(need, slots)
 
-  // Ищем ближайшую подходящую цель
-  let best = null
-  let bestDist = Infinity
+  // Собираем ВСЕ подходящие цели в радиусе
+  const candidates = []
   for (const { instance: other, definition: otherDef } of renderList.value) {
     if (other.id === inst.id) continue
     if (!other.points?.length) continue
@@ -146,22 +139,24 @@ function onPointerMove(e) {
     const p = other.points[0]
     const dx = p.x - x, dy = p.y - y
     const d = Math.sqrt(dx * dx + dy * dy)
-    if (d < BOND_RANGE && d < bestDist) {
-      bestDist = d
-      best = { instance: other, point: p }
+    if (d < BOND_RANGE) {
+      candidates.push({ instance: other, point: p, dist: d })
     }
   }
-  potentialBond.value = best
+
+  // Сортируем по расстоянию, берём ближайшие
+  candidates.sort((a, b) => a.dist - b.dist)
+  potentialBonds.value = candidates.slice(0, take)
 }
 
 function onPointerUp() {
-  if (dragging.value && potentialBond.value) {
-    if (canCreateBond(dragging.value.instanceId, potentialBond.value.instance.id)) {
-      props.level.toggleConnection(dragging.value.instanceId, potentialBond.value.instance.id)
+  if (dragging.value && potentialBonds.value.length) {
+    for (const target of potentialBonds.value) {
+      props.level.toggleConnection(dragging.value.instanceId, target.instance.id)
     }
   }
   dragging.value = null
-  potentialBond.value = null
+  potentialBonds.value = []
 }
 </script>
 
@@ -179,6 +174,7 @@ function onPointerUp() {
   >
     <rect x="0" y="0" width="100%" height="100%" fill="#bfe3ff" />
 
+    <!-- Существующие связи -->
     <line
       v-for="c in connections"
       :key="c.id"
@@ -186,29 +182,34 @@ function onPointerUp() {
       stroke="#3a3a3a" stroke-width="5" stroke-linecap="round"
     />
 
-    <line
-      v-if="dragging && potentialBond"
-      :x1="draggingPoint.x"
-      :y1="draggingPoint.y"
-      :x2="potentialBond.point.x"
-      :y2="potentialBond.point.y"
-      stroke="#ffd166"
-      stroke-width="4"
-      stroke-dasharray="10 5"
-      opacity="0.8"
-      stroke-linecap="round"
-    />
-    <circle
-      v-if="dragging && potentialBond"
-      :cx="potentialBond.point.x"
-      :cy="potentialBond.point.y"
-      :r="potentialBond.instance.points?.[0]?.radius ?? 12"
-      fill="none"
-      stroke="#ffd166"
-      stroke-width="3"
-      stroke-dasharray="6 4"
-      opacity="0.6"
-    />
+    <!-- Потенциальные связи (World of Goo style) -->
+    <g v-if="dragging && potentialBonds.length">
+      <line
+        v-for="(pb, i) in potentialBonds"
+        :key="i"
+        :x1="draggingPoint.x"
+        :y1="draggingPoint.y"
+        :x2="pb.point.x"
+        :y2="pb.point.y"
+        stroke="#ffd166"
+        stroke-width="4"
+        stroke-dasharray="10 5"
+        opacity="0.8"
+        stroke-linecap="round"
+      />
+      <circle
+        v-for="(pb, i) in potentialBonds"
+        :key="`c${i}`"
+        :cx="pb.point.x"
+        :cy="pb.point.y"
+        :r="pb.instance.points?.[0]?.radius ?? 12"
+        fill="none"
+        stroke="#ffd166"
+        stroke-width="3"
+        stroke-dasharray="6 4"
+        opacity="0.6"
+      />
+    </g>
 
     <component
       :is="entry.definition.GameComponent"

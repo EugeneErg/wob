@@ -21,7 +21,6 @@ export default {
       color: initProps.color ?? COLORS[Math.floor(Math.random() * COLORS.length)],
       minBonds: initProps.minBonds ?? 1,
       maxBonds: initProps.maxBonds ?? 3,
-      bondable: initProps.bondable ?? false,
       bondCount: 0,
     }
     const point = new VerletPoint(initProps.x ?? 0, initProps.y ?? 0, { radius, meta: { entityId: id } })
@@ -38,8 +37,7 @@ export default {
     [PROP.WEIGHT]: (state) => state.mass,
     [PROP.COLLISION]: true,
     [PROP.SMOOTHNESS]: (state) => state.smoothness,
-    // Шар bondable только если уже часть конструкции (есть связи) или принудительно
-    [PROP.BONDABLE]: (state) => state.bondCount >= (state.minBonds ?? 1) || state.bondable === true,
+    [PROP.BONDABLE]: true, // шар всегда bondable
     [PROP.Z_INDEX]: 10,
   },
 
@@ -67,7 +65,6 @@ export default {
       { key: 'color', label: 'Цвет', type: 'color' },
       { key: 'minBonds', label: 'Мин. связей', type: 'number', min: 0, step: 1 },
       { key: 'maxBonds', label: 'Макс. связей', type: 'number', min: 1, step: 1 },
-      { key: 'bondable', label: 'Всегда bondable', type: 'checkbox' },
     ],
   },
 }
