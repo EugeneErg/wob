@@ -59,9 +59,10 @@ const connections = computed(() =>
   })).filter((c) => c.a && c.b)
 )
 
-// --- drag + потенциальные связи (World of Goo style) ---
+// --- drag + потенциальные связи ---
 const dragging = ref(null)
-const potentialBonds = ref([]) // [{ instance, point }]
+const potentialBonds = ref([])
+const existingBonds = ref([]) // существующие связи при drag (для визуализации вырывания)
 const BOND_RANGE = 150
 
 const draggingPoint = computed(() => {
@@ -79,16 +80,13 @@ function canDrag(instance, definition) {
   return readProperty(instance, definition, PROP.COLLISION)
 }
 
+// Используем countBonds из level — всегда актуально
 function bondCount(instance) {
-  return instance.state?.bondCount ?? 0
+  return props.level.countBonds(instance.id)
 }
 
 function maxBonds(instance) {
   return instance.state?.maxBonds ?? Infinity
-}
-
-function minBonds(instance) {
-  return instance.state?.minBonds ?? 1
 }
 
 function canAcceptBond(targetInstance, targetDef) {
@@ -109,6 +107,20 @@ function onPointerDown(e) {
   })
   if (!hit) return
   dragging.value = { instanceId: hit.instance.id }
+
+  // Собираем существующие связи для визуализации вырывания
+  existingBonds.value = props.level.state.connections
+    .filter(c => c.aId === hit.instance.id || c.bId === hit.instance.id)
+    .map(c => {
+      const otherId = c.aId === hit.instance.id ? c.bId : c.aId
+      const otherInst = props.level.getInstance(otherId)
+      return {
+        stick: c.stick,
+        otherPoint: otherInst?.points?.[0],
+        otherInstance: otherInst,
+      }
+    })
+    .filter(b => b.otherPoint)
 }
 
 function onPointerMove(e) {
@@ -118,19 +130,25 @@ function onPointerMove(e) {
   const { x, y } = toSvgCoords(e)
   inst.points[0].setPosition(x, y)
 
-  // Сколько связей шар хочет/может создать
+  // --- Обновляем существующие связи: скрываем если слишком далеко ---
+  existingBonds.value = existingBonds.value.filter(b => {
+    if (!b.otherPoint) return false
+    const dx = b.otherPoint.x - x
+    const dy = b.otherPoint.y - y
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    const limit = b.stick.length * (b.stick.maxStretch ?? 2.2)
+    return dist <= limit
+  })
+
+  // --- Ищем новые потенциальные связи ---
   const current = bondCount(inst)
   const max = maxBonds(inst)
-  const min = minBonds(inst)
-  const need = Math.max(min - current, 1) // хотя бы 1, иначе ничего не рисуем
   const slots = max - current
   if (slots <= 0) {
     potentialBonds.value = []
     return
   }
-  const take = Math.min(need, slots)
 
-  // Собираем ВСЕ подходящие цели в радиусе
   const candidates = []
   for (const { instance: other, definition: otherDef } of renderList.value) {
     if (other.id === inst.id) continue
@@ -144,19 +162,35 @@ function onPointerMove(e) {
     }
   }
 
-  // Сортируем по расстоянию, берём ближайшие
   candidates.sort((a, b) => a.dist - b.dist)
-  potentialBonds.value = candidates.slice(0, take)
+  potentialBonds.value = candidates.slice(0, slots)
 }
 
 function onPointerUp() {
-  if (dragging.value && potentialBonds.value.length) {
+  if (dragging.value) {
+    // Порвём связи, которые "вырваны" (не в existingBonds — значит слишком далеко)
+    const draggedId = dragging.value.instanceId
+    const keptIds = new Set(existingBonds.value.map(b => b.otherInstance.id))
+    const allConns = props.level.state.connections.filter(c => c.aId === draggedId || c.bId === draggedId)
+    for (const c of allConns) {
+      const otherId = c.aId === draggedId ? c.bId : c.aId
+      if (!keptIds.has(otherId)) {
+        props.level.removeConnection(draggedId, otherId)
+      }
+    }
+
+    // Создаём новые связи
     for (const target of potentialBonds.value) {
-      props.level.toggleConnection(dragging.value.instanceId, target.instance.id)
+      const targetCurrent = bondCount(target.instance)
+      const targetMax = maxBonds(target.instance)
+      if (targetCurrent < targetMax) {
+        props.level.toggleConnection(draggedId, target.instance.id)
+      }
     }
   }
   dragging.value = null
   potentialBonds.value = []
+  existingBonds.value = []
 }
 </script>
 
@@ -182,11 +216,28 @@ function onPointerUp() {
       stroke="#3a3a3a" stroke-width="5" stroke-linecap="round"
     />
 
-    <!-- Потенциальные связи (World of Goo style) -->
+    <!-- Существующие связи при drag (потенциально порываемые) -->
+    <g v-if="dragging && existingBonds.length">
+      <line
+        v-for="(b, i) in existingBonds"
+        :key="`ex${i}`"
+        :x1="draggingPoint.x"
+        :y1="draggingPoint.y"
+        :x2="b.otherPoint.x"
+        :y2="b.otherPoint.y"
+        stroke="#ff6b6b"
+        stroke-width="3"
+        stroke-dasharray="8 4"
+        opacity="0.8"
+        stroke-linecap="round"
+      />
+    </g>
+
+    <!-- Потенциальные новые связи -->
     <g v-if="dragging && potentialBonds.length">
       <line
         v-for="(pb, i) in potentialBonds"
-        :key="i"
+        :key="`pb${i}`"
         :x1="draggingPoint.x"
         :y1="draggingPoint.y"
         :x2="pb.point.x"
@@ -194,12 +245,12 @@ function onPointerUp() {
         stroke="#ffd166"
         stroke-width="4"
         stroke-dasharray="10 5"
-        opacity="0.8"
+        opacity="0.9"
         stroke-linecap="round"
       />
       <circle
         v-for="(pb, i) in potentialBonds"
-        :key="`c${i}`"
+        :key="`pc${i}`"
         :cx="pb.point.x"
         :cy="pb.point.y"
         :r="pb.instance.points?.[0]?.radius ?? 12"
