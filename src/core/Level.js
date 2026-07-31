@@ -1,14 +1,9 @@
 // core/Level.js
-//
-// Единственное состояние уровня. Ни редактор, ни игра, ни физика не хранят
-// сущности сами — все читают/пишут через этот объект. Это то место, где
-// удобно завести и "связи" (bonds) — они не относятся к конкретной сущности,
-// это межсущностная концепция, управляемая свойством PROP.BONDABLE.
 
 import { reactive } from 'vue'
 import { getEntityDefinition } from './EntityRegistry.js'
 import { readProperty, PROP } from './GlobalProperties.js'
-import { VerletStick } from './verlet.js'
+import { VerletStick, distance } from './verlet.js'
 
 let uid = 0
 function nextId(type) {
@@ -18,8 +13,8 @@ function nextId(type) {
 
 export function createLevel() {
   const state = reactive({
-    entities: [], // [{ id, type, state, points?, sticks?, collisionShape? }]
-    connections: [], // [{ id, aId, bId }] — только между bondable сущностями
+    entities: [],
+    connections: [],
   })
 
   function addEntity(type, initProps) {
@@ -47,7 +42,6 @@ export function createLevel() {
     return inst && getEntityDefinition(inst.type)
   }
 
-  /** Список [{instance, definition}] — то, что нужно PhysicsWorld/рендеру */
   function getEntitiesWithDefs() {
     return state.entities.map((instance) => ({
       instance,
@@ -61,7 +55,23 @@ export function createLevel() {
     )
   }
 
-  /** Создаёт связь между двумя bondable-сущностями, либо снимает, если уже есть */
+  function countBonds(id) {
+    return state.connections.filter((c) => c.aId === id || c.bId === id).length
+  }
+
+  function updateBondCount(id) {
+    const inst = getInstance(id)
+    if (inst && inst.state) {
+      inst.state.bondCount = countBonds(id)
+    }
+  }
+
+  function updateAllBondCounts() {
+    for (const e of state.entities) {
+      if (e.state) e.state.bondCount = countBonds(e.id)
+    }
+  }
+
   function toggleConnection(aId, bId) {
     if (aId === bId) return
     const a = getInstance(aId)
@@ -69,16 +79,37 @@ export function createLevel() {
     const defA = getEntityDefinition(a.type)
     const defB = getEntityDefinition(b.type)
     if (!readProperty(a, defA, PROP.BONDABLE) || !readProperty(b, defB, PROP.BONDABLE)) return
+
     if (connectionExists(aId, bId)) {
       removeConnection(aId, bId)
       return
     }
+
     if (!a.points?.length || !b.points?.length) return
-    const stick = new VerletStick(a.points[0], b.points[0], { stiffness: 1, breakable: true, maxStretch: 2.2 })
+
+    const aBonds = countBonds(aId)
+    const bBonds = countBonds(bId)
+    if (a.state?.maxBonds !== undefined && aBonds >= a.state.maxBonds) return
+    if (b.state?.maxBonds !== undefined && bBonds >= b.state.maxBonds) return
+
+    const p1 = a.points[0]
+    const p2 = b.points[0]
+    const dist = distance(p1, p2)
+    const minLength = (p1.radius || 10) + (p2.radius || 10)
+    const length = Math.max(dist, minLength)
+
+    const stick = new VerletStick(p1, p2, {
+      length,
+      stiffness: 0.6,
+      breakable: true,
+      maxStretch: 2.2,
+    })
     const id = `bond_${aId}_${bId}`
     state.connections.push({ id, aId, bId, stick })
-    // держим стик в sticks инициатора — так PhysicsWorld удовлетворяет его один раз за суб-шаг
     a.sticks?.push(stick)
+
+    updateBondCount(aId)
+    updateBondCount(bId)
   }
 
   function removeConnection(aId, bId) {
@@ -91,9 +122,10 @@ export function createLevel() {
     if (a?.sticks) {
       a.sticks = a.sticks.filter((s) => s !== conn.stick)
     }
+    updateBondCount(conn.aId)
+    updateBondCount(conn.bId)
   }
 
-  /** Убираем связи, помеченные VerletStick как разорванные (растяжение сверх лимита) */
   function pruneBrokenConnections() {
     const broken = state.connections.filter((c) => c.stick.broken)
     broken.forEach((c) => removeConnection(c.aId, c.bId))
@@ -110,5 +142,7 @@ export function createLevel() {
     removeConnection,
     connectionExists,
     pruneBrokenConnections,
+    countBonds,
+    updateAllBondCounts,
   }
 }

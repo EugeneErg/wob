@@ -1,7 +1,7 @@
 <script setup>
 const props = defineProps({
   instance: { type: Object, required: true },
-  active: { type: Boolean, default: false }, // true когда мы в контексте этой сущности
+  active: { type: Boolean, default: false },
 })
 const emit = defineEmits(['select', 'vertex-drag'])
 
@@ -38,6 +38,7 @@ function isSelected(index) {
         stroke="#4a3f30"
         stroke-width="1.5"
         style="cursor: grab"
+        data-handle="true"
         @pointerdown="onVertexPointerDown(i, $event)"
       />
     </template>

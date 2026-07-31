@@ -1,8 +1,4 @@
 // entities/ball/index.js
-//
-// Шар — игрок может им управлять, шары создают связи друг с другом.
-// Физически — одна VerletPoint. "Управление" в этом каркасе реализовано
-// как перетаскивание в игровом режиме (см. GameCanvas) через applyImpulse.
 
 import BallGame from './BallGame.vue'
 import BallEditor from './BallEditor.vue'
@@ -23,14 +19,18 @@ export default {
       mass: initProps.mass ?? 1,
       smoothness: 0.3,
       color: initProps.color ?? COLORS[Math.floor(Math.random() * COLORS.length)],
+      minBonds: initProps.minBonds ?? 1,
+      maxBonds: initProps.maxBonds ?? 3,
+      bondable: initProps.bondable ?? false,
+      bondCount: 0,
     }
     const point = new VerletPoint(initProps.x ?? 0, initProps.y ?? 0, { radius, meta: { entityId: id } })
     return {
       id,
       type: 'ball',
       state,
-      points: [point], // подхватывается PhysicsWorld как обычная динамическая точка
-      sticks: [], // сюда попадают связи (VerletStick), инициированные ЭТИМ шаром
+      points: [point],
+      sticks: [],
     }
   },
 
@@ -38,8 +38,9 @@ export default {
     [PROP.WEIGHT]: (state) => state.mass,
     [PROP.COLLISION]: true,
     [PROP.SMOOTHNESS]: (state) => state.smoothness,
-    [PROP.BONDABLE]: true,
-    [PROP.Z_INDEX]: 10, // шары всегда рисуются поверх породы/труб
+    // Шар bondable только если уже часть конструкции (есть связи) или принудительно
+    [PROP.BONDABLE]: (state) => state.bondCount >= (state.minBonds ?? 1) || state.bondable === true,
+    [PROP.Z_INDEX]: 10,
   },
 
   GameComponent: BallGame,
@@ -52,8 +53,6 @@ export default {
       return { x: p.x - r, y: p.y - r, width: r * 2, height: r * 2 }
     },
 
-    // Клик по ДРУГОЙ сущности, пока мы в контексте этого шара — пробуем
-    // создать связь. Через свойство BONDABLE, а не через проверку типа "ball".
     onEntityClick(instance, otherInstance, otherDefinition, level) {
       if (otherInstance.id === instance.id) return
       const otherBondable = readProperty(otherInstance, otherDefinition, PROP.BONDABLE)
@@ -66,6 +65,9 @@ export default {
       { key: 'radius', label: 'Радиус', type: 'number', min: 5, step: 1 },
       { key: 'smoothness', label: 'Гладкость', type: 'range', min: 0, max: 1, step: 0.05 },
       { key: 'color', label: 'Цвет', type: 'color' },
+      { key: 'minBonds', label: 'Мин. связей', type: 'number', min: 0, step: 1 },
+      { key: 'maxBonds', label: 'Макс. связей', type: 'number', min: 1, step: 1 },
+      { key: 'bondable', label: 'Всегда bondable', type: 'checkbox' },
     ],
   },
 }

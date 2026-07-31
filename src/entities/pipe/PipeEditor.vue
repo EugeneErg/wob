@@ -32,7 +32,8 @@ function isSelected(end) {
         stroke="#212529"
         stroke-width="1.5"
         style="cursor: grab"
-        @pointerdown.stop="emit('endpoint-drag', { instanceId: instance.id, end })"
+        data-handle="true"
+        @pointerdown.stop="emit('endpoint-drag', { instanceId: props.instance.id, end })"
       />
     </template>
   </g>
