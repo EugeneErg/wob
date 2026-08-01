@@ -1,7 +1,6 @@
 import { Physics } from './verlet.js'
 import { getEntity } from './registry.js'
 import { closestOnSegment, pointInPoly } from './geom.js'
-import { composeShapes } from './scene.js'
 
 let UID = 1
 export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toString(36).slice(2, 6)}`
@@ -169,7 +168,13 @@ export class World {
   }
 
   scene() {
-    return composeShapes(this.instances)
+    const out = []
+    const sorted = [...this.instances].sort((a, b) => (a.def.z || 0) - (b.def.z || 0))
+    for (const inst of sorted) {
+      const s = inst.def.shapes(inst.data, inst.rt)
+      if (s && s.length) out.push(...s)
+    }
+    return out
   }
 
   // Ввод: мир не знает, кто как реагирует — просто спрашивает сущности.

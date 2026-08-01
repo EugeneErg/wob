@@ -10,7 +10,7 @@ export class Physics {
   constructor(opts = {}) {
     this.gravity = { x: 0, y: 1800, ...(opts.gravity || {}) }
     this.damping = opts.damping ?? 0.998
-    this.iterations = opts.iterations ?? 3
+    this.iterations = opts.iterations ?? 6
     this.fixed = 1 / 120
     this.maxSub = 8
     this._acc = 0
@@ -29,8 +29,7 @@ export class Physics {
       x, y,
       px: x - (o.vx || 0),
       py: y - (o.vy || 0),
-      ax: 0, ay: 0,   // ускорение от сущностей (живёт весь кадр)
-      fx: 0, fy: 0,   // сила от связей (пересчитывается каждый подшаг)
+      ax: 0, ay: 0,
       // глобальные свойства
       radius: o.radius ?? 8,
       mass: o.mass ?? 1,
@@ -67,11 +66,7 @@ export class Physics {
     const l = {
       id: nid('l'), a, b,
       rest: o.rest ?? Math.hypot(a.x - b.x, a.y - b.y),
-      spring: o.spring ?? 2500,        // сила на пиксель растяжения
-      damping: clamp(o.damping ?? 0.2, 0, 1), // доля гасимой скорости вдоль связи
-      breakForce: o.breakForce ?? Infinity,   // рвётся, когда натяжение превысит порог
-      lambda: 0,                       // множитель ограничения за подшаг
-      tension: 0,                      // натяжение (сила), сглаженное
+      stiffness: clamp(o.stiffness ?? 1, 0, 1),
       visible: o.visible !== false,
       width: o.width ?? 5,
       color: o.color || null,
@@ -135,66 +130,26 @@ export class Physics {
       p.x += vx + (g.x * p.gravityScale + p.ax) * dt * dt
       p.y += vy + (g.y * p.gravityScale + p.ay) * dt * dt
     }
-
-    for (const l of this.links) l.lambda = 0
     for (let i = 0; i < this.iterations; i++) {
-      this._solveLinks(dt)
+      this._solveLinks()
       this._solvePairs()
       this._solveWorld(false)
     }
     this._solveWorld(true)
-    this._dampLinks()
-
-    // натяжение = сила в связи; сглаживаем, чтобы не рвать от случайного всплеска
-    let broken = null
-    const k = 1 / (dt * dt)
-    for (const l of this.links) {
-      const f = Math.max(0, -l.lambda * k)
-      l.tension += (f - l.tension) * 0.05
-      if (l.tension > l.breakForce) (broken ||= []).push(l)
-    }
-    if (broken) for (const l of broken) this.removeLink(l)
   }
 
-  // Податливое ограничение (XPBD): та же позиционная коррекция, что и в верле,
-  // но с податливостью 1/spring. Устойчиво при любой жёсткости, при этом связь
-  // реально растягивается пропорционально нагрузке, а lambda даёт настоящую силу.
-  _solveLinks(dt) {
-    const inv = 1 / (dt * dt)
+  _solveLinks() {
     for (const l of this.links) {
       const { a, b } = l
-      const w1 = a.pinned ? 0 : 1 / a.mass
-      const w2 = b.pinned ? 0 : 1 / b.mass
-      const w = w1 + w2
-      if (!w) continue
       const dx = b.x - a.x, dy = b.y - a.y
       const d = Math.hypot(dx, dy) || 1e-9
-      const nx = dx / d, ny = dy / d
-      const C = d - l.rest
-      const alpha = inv / l.spring
-      const dl = (-C - alpha * l.lambda) / (w + alpha)
-      l.lambda += dl
-      a.x -= nx * dl * w1; a.y -= ny * dl * w1
-      b.x += nx * dl * w2; b.y += ny * dl * w2
-    }
-  }
-
-  // Гашение — фильтр скорости, а не сила: не может накачать энергию.
-  _dampLinks() {
-    for (const l of this.links) {
-      if (!l.damping) continue
-      const { a, b } = l
-      const w1 = a.pinned ? 0 : 1 / a.mass
-      const w2 = b.pinned ? 0 : 1 / b.mass
-      const w = w1 + w2
-      if (!w) continue
-      const dx = b.x - a.x, dy = b.y - a.y
-      const d = Math.hypot(dx, dy) || 1e-9
-      const nx = dx / d, ny = dy / d
-      const vrel = ((b.x - b.px) - (a.x - a.px)) * nx + ((b.y - b.py) - (a.y - a.py)) * ny
-      const k = l.damping * vrel
-      a.px -= (k * nx * w1) / w; a.py -= (k * ny * w1) / w
-      b.px += (k * nx * w2) / w; b.py += (k * ny * w2) / w
+      const ima = a.pinned ? 0 : 1 / a.mass
+      const imb = b.pinned ? 0 : 1 / b.mass
+      const s = ima + imb
+      if (!s) continue
+      const diff = ((d - l.rest) / d) * l.stiffness
+      a.x += dx * diff * (ima / s); a.y += dy * diff * (ima / s)
+      b.x -= dx * diff * (imb / s); b.y -= dy * diff * (imb / s)
     }
   }
 
@@ -237,31 +192,19 @@ export class Physics {
 
   _resolvePoly(p, c, withVelocity) {
     const pts = c.points
-    const closest = (x, y) => {
-      let best = null, bestD = Infinity
-      for (let i = 0, n = pts.length; i < n; i++) {
-        const a = pts[i], b = pts[(i + 1) % n]
-        const q = closestOnSegment(x, y, a[0], a[1], b[0], b[1])
-        const d = Math.hypot(x - q.x, y - q.y)
-        if (d < bestD) { bestD = d; best = q }
-      }
-      return { q: best, d: bestD }
+    let best = null, bestD = Infinity
+    for (let i = 0, n = pts.length; i < n; i++) {
+      const a = pts[i], b = pts[(i + 1) % n]
+      const q = closestOnSegment(p.x, p.y, a[0], a[1], b[0], b[1])
+      const d = Math.hypot(p.x - q.x, p.y - q.y)
+      if (d < bestD) { bestD = d; best = q }
     }
-
-    const inside = pointInPoly(p.x, p.y, pts)
-    let { q: best, d: bestD } = closest(p.x, p.y)
     if (!best) return
+    const inside = pointInPoly(p.x, p.y, pts)
     if (!inside && bestD >= p.radius) return
 
     let nx, ny
-    if (inside && !pointInPoly(p.px, p.py, pts)) {
-      // влетел за один шаг — выталкиваем туда, откуда пришёл
-      const prev = closest(p.px, p.py)
-      best = prev.q
-      const dx = p.px - best.x, dy = p.py - best.y
-      const d = Math.hypot(dx, dy) || 1e-9
-      nx = dx / d; ny = dy / d
-    } else if (bestD < 1e-6) { nx = 0; ny = -1 }
+    if (bestD < 1e-6) { nx = 0; ny = -1 }
     else {
       nx = (p.x - best.x) / bestD
       ny = (p.y - best.y) / bestD

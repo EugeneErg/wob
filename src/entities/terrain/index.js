@@ -1,5 +1,4 @@
 import { defineEntity } from '../../core/registry.js'
-import { LAYERS } from '../../core/globals.js'
 import { bboxOfPoints, pointInPoly, nearestEdgeIndex } from '../../core/geom.js'
 
 // Статичный рельеф. Из глобальных свойств отдаёт миру только гладкость.
@@ -7,7 +6,7 @@ import { bboxOfPoints, pointInPoly, nearestEdgeIndex } from '../../core/geom.js'
 export default defineEntity({
   type: 'terrain',
   title: 'Рельеф',
-  z: LAYERS.ground,
+  z: -20,
   icon: '<svg viewBox="0 0 24 24"><path d="M2 19h20L15 7l-4 6-3-3z" fill="currentColor"/></svg>',
 
   defaults: () => ({

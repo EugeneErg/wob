@@ -152,11 +152,10 @@
     "x": 200,
     "y": 755,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -167,11 +166,10 @@
     "x": 250,
     "y": 755,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -182,11 +180,10 @@
     "x": 300,
     "y": 755,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -197,11 +194,10 @@
     "x": 180,
     "y": 715,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -212,11 +208,10 @@
     "x": 240,
     "y": 715,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -227,11 +222,10 @@
     "x": 300,
     "y": 715,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -242,11 +236,10 @@
     "x": 150,
     "y": 675,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -257,11 +250,10 @@
     "x": 210,
     "y": 675,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -272,11 +264,10 @@
     "x": 270,
     "y": 675,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -287,11 +278,10 @@
     "x": 330,
     "y": 675,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -302,11 +292,10 @@
     "x": 170,
     "y": 635,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -317,11 +306,10 @@
     "x": 230,
     "y": 635,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -332,11 +320,10 @@
     "x": 290,
     "y": 635,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
@@ -347,11 +334,10 @@
     "x": 350,
     "y": 635,
     "r": 13,
-    "mass": 1,
     "minLinks": 2,
     "maxLinks": 3,
     "range": 165,
-    "jump": 470,
+    "seek": 340,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }

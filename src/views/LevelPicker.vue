@@ -40,7 +40,7 @@
 <script setup>
 import { ref } from 'vue'
 import { listLevels, deleteLevel, copyLevel, blankLevel, resetLevels } from '../core/levels.js'
-import { shapesForLevel } from '../core/scene.js'
+import { getEntity } from '../core/registry.js'
 import SvgScene from '../components/SvgScene.js'
 
 const props = defineProps({ mode: { type: String, default: 'play' } })
@@ -49,7 +49,15 @@ const emit = defineEmits(['back', 'open'])
 const levels = ref(listLevels())
 const refresh = () => (levels.value = listLevels())
 
-const preview = (level) => shapesForLevel(level)
+function preview(level) {
+  const out = []
+  const sorted = [...level.entities].sort((a, b) => (getEntity(a.type)?.z || 0) - (getEntity(b.type)?.z || 0))
+  for (const e of sorted) {
+    const def = getEntity(e.type)
+    if (def) out.push(...def.shapes(e.data, null))
+  }
+  return out
+}
 
 const pick = (l) => emit('open', l.id)
 function duplicate(l) { copyLevel(l.id); refresh() }
