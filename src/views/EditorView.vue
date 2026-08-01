@@ -117,6 +117,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, shallowRef } from 'vue'
 import { allEntities, getEntity } from '../core/registry.js'
+import { shapesForLevel } from '../core/scene.js'
 import { getLevel, saveLevel, blankLevel } from '../core/levels.js'
 import { newId } from '../core/world.js'
 import { rectsIntersect, pointInRect } from '../core/geom.js'
@@ -162,15 +163,7 @@ function withDef(e) {
   return { ...e, def: getEntity(e.type) }
 }
 
-const sceneShapes = computed(() => {
-  const out = []
-  const sorted = [...level.value.entities].sort((a, b) => (getEntity(a.type)?.z || 0) - (getEntity(b.type)?.z || 0))
-  for (const e of sorted) {
-    const def = getEntity(e.type)
-    if (def) out.push(...def.shapes(e.data, null))
-  }
-  return out
-})
+const sceneShapes = computed(() => shapesForLevel(level.value))
 
 const draftShapes = computed(() => {
   const c = creating.value

@@ -1,4 +1,5 @@
 import { defineEntity } from '../../core/registry.js'
+import { LAYERS } from '../../core/globals.js'
 import { bboxOfPoints, distToPolyline, nearestEdgeIndex } from '../../core/geom.js'
 
 // Труба. Первая точка ломаной — устье.
@@ -8,7 +9,7 @@ import { bboxOfPoints, distToPolyline, nearestEdgeIndex } from '../../core/geom.
 export default defineEntity({
   type: 'pipe',
   title: 'Труба',
-  z: 30,
+  z: LAYERS.device,
   icon: '<svg viewBox="0 0 24 24"><path d="M4 18v-6a5 5 0 0 1 5-5h11" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></svg>',
 
   defaults: () => ({
@@ -38,15 +39,18 @@ export default defineEntity({
 
     if (rt.link) {
       const far = rt.link.a === m ? rt.link.b : rt.link.a
-      if (!far.attachable) { ctx.removeLink(rt.link); rt.link = null }
+      if (!far.attachable) { ctx.removeLink(rt.link); rt.link = null; return }
+      // лебёдка: тянем конструкцию к устью со скоростью 60 px/с
+      rt.link.rest = Math.max(data.radius * 0.8, rt.link.rest - 60 * dt)
       return
     }
     const t = ctx.nearest(m, (q) => q.attachable, data.radius * 3.5)
     if (t) {
       rt.link = ctx.addLink(m, t, {
         visible: false,
-        stiffness: 0.03,
-        rest: data.radius * 0.8,
+        spring: 900,
+        damping: 0.3,
+        rest: Math.hypot(t.x - m.x, t.y - m.y), // подтягиваем плавно, а не рывком
       })
     }
   },
