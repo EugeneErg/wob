@@ -52,6 +52,7 @@ export class Physics {
       pinned: !!o.pinned,
       gravityScale,
       owner: o.owner || null,              // id инстанса-владельца
+      group: o.group || o.owner || null,   // сборка: внутри неё не сталкиваются
       links: [],
       removed: false,
     }
@@ -188,6 +189,7 @@ export class Physics {
       smoothness: o.smoothness ?? 0.5,
       restitution: o.restitution ?? 0.1,
       owner: o.owner || null,
+      group: o.group || o.owner || null,
       removed: false,
     }
     c.dynamic = !!c.verts
@@ -337,7 +339,7 @@ export class Physics {
     for (const p of this.points) {
       if (p.pinned || !p.collision.world) continue
       for (const c of this.colliders) {
-        if (c.owner && c.owner === p.owner) continue // сам себя не толкает
+        if (c.group && c.group === p.group) continue // внутри одной сборки не толкаемся
         const ct = this._contact(p, c)
         if (!ct) continue
         if (!c.dynamic) {
@@ -353,7 +355,7 @@ export class Physics {
         const we = (1 - t) * (1 - t) * wa + t * t * wb
         const sum = wp + we
         if (!sum) continue
-        const d = ct.depth
+        const d = Math.min(ct.depth, 16) // разлипаем постепенно, а не рывком
         p.x += ct.nx * d * (wp / sum); p.y += ct.ny * d * (wp / sum)
         if (wa) { a.x -= ct.nx * d * ((1 - t) * wa) / sum; a.y -= ct.ny * d * ((1 - t) * wa) / sum }
         if (wb) { b.x -= ct.nx * d * (t * wb) / sum; b.y -= ct.ny * d * (t * wb) / sum }
@@ -366,7 +368,7 @@ export class Physics {
     for (const p of this.points) {
       if (p.pinned || !p.collision.world) continue
       for (const c of this.colliders) {
-        if (c.owner && c.owner === p.owner) continue
+        if (c.group && c.group === p.group) continue
         const ct = this._contact(p, c, 0.5)
         if (!ct) continue
         const { nx, ny } = ct

@@ -1,5 +1,5 @@
 import { defineEntity } from '../../core/registry.js'
-import { clamp } from '../../core/geom.js'
+import { clamp, closestOnSegment } from '../../core/geom.js'
 import { LAYERS } from '../../core/globals.js'
 
 // Игровой шар.
@@ -30,6 +30,7 @@ export default defineEntity({
     mass: 1,        // свободный
     builtMass: 1,   // в конструкции
     anchorable: true, // можно ли цепляться к нему самому
+    asleep: false,    // спит: игроку недоступен, будит касание конструкции
     minLinks: 2,
     maxLinks: 3,
     range: 165,
@@ -51,7 +52,8 @@ export default defineEntity({
       attachable: false,
     })
     return {
-      p, state: 'free', walk: null, links: [], preview: [], ghost: null,
+      p, state: 'free', walk: null, climb: null, links: [], preview: [], ghost: null,
+      asleep: !!data.asleep, hover: false,
       cd: 0, dir: Math.random() < 0.5 ? -1 : 1, pause: 0, retreat: 0, look: { x: 0, y: 1 },
     }
   },
@@ -61,6 +63,7 @@ export default defineEntity({
     rt.links = rt.links.filter((l) => !l.removed)
     if (p.y > ctx.bounds.y + ctx.bounds.h + 400) { ctx.emit('ball:lost'); ctx.despawnSelf(); return }
 
+    rt.hover = !!ctx.pointer && Math.hypot(ctx.pointer.x - p.x, ctx.pointer.y - p.y) < p.radius + 14
     const inStructure = rt.state === 'built' || rt.state === 'pull'
     // цепляться можно только к тому, кто это разрешает
     p.attachable = inStructure && data.anchorable !== false
@@ -80,6 +83,18 @@ export default defineEntity({
       return
     }
     if (rt.state === 'walk') return walk(rt, ctx, dt, data)
+    if (rt.state === 'climb') return climb(rt, ctx, dt, data)
+
+    // спящий шар ничего не делает, пока его не коснётся конструкция
+    if (rt.asleep) {
+      p.pinned = false
+      rt.look = { x: 0, y: 1 }
+      const touch = ctx.nearest(p, (q) => q !== p && q.attachable, p.radius + 90)
+      const near = touch && Math.hypot(touch.x - p.x, touch.y - p.y) < p.radius + touch.radius + 6
+      const rail = ctx.closestOnLinks(p, (l) => passable(l.a) && passable(l.b))
+      if (near || (rail && rail.dist < p.radius + 6)) { rt.asleep = false; ctx.emit('ball:woke') }
+      return
+    }
 
     return roam(rt, ctx, dt, data)
   },
@@ -129,17 +144,30 @@ export default defineEntity({
       out.push({ k: 'circle', layer, x, y, r: r + 4, fill: 'none', stroke: ok ? '#ffd9a0' : '#c0563a', sw: 2, opacity: 0.55 })
     }
     out.push({ k: 'circle', layer, x, y, r, fill: data.color, stroke: '#7a2f14', sw: 2.5, opacity: ghost && !ok ? 0.65 : 1 })
+
     const look = rt?.look || { x: 0, y: 1 }
     const ex = r * 0.36, ey = -r * 0.18
-    for (const s of [-1, 1]) {
-      out.push({ k: 'circle', layer, x: x + s * ex, y: y + ey, r: r * 0.33, fill: '#fff' })
-      out.push({ k: 'circle', layer, x: x + s * ex + look.x * r * 0.12, y: y + ey + look.y * r * 0.12, r: r * 0.15, fill: '#20140d' })
+    if (rt?.asleep) {
+      // спит: закрытые глаза и zZ
+      for (const s of [-1, 1]) {
+        out.push({ k: 'line', layer, x1: x + s * ex - r * 0.22, y1: y + ey, x2: x + s * ex + r * 0.22, y2: y + ey, stroke: '#20140d', sw: 2, cap: 'round' })
+      }
+      out.push({ k: 'text', layer, x: x + r * 1.1, y: y - r * 1.0, text: 'zZ', size: r * 1.1, fill: '#cfe0e8', anchor: 'start', opacity: 0.75 })
+      return out
+    }
+    // в конструкции глаза показываем только под курсором
+    if (st !== 'built' || rt?.hover) {
+      for (const s of [-1, 1]) {
+        out.push({ k: 'circle', layer, x: x + s * ex, y: y + ey, r: r * 0.33, fill: '#fff' })
+        out.push({ k: 'circle', layer, x: x + s * ex + look.x * r * 0.12, y: y + ey + look.y * r * 0.12, r: r * 0.15, fill: '#20140d' })
+      }
     }
     return out
   },
 
   pointer: {
     hit(rt, ctx, pt, data) {
+      if (rt.asleep) return false // спящим управлять нельзя
       const at = (rt.state === 'pull' || rt.state === 'drag') && rt.ghost ? rt.ghost : rt.p
       return Math.hypot(pt.x - at.x, pt.y - at.y) <= rt.p.radius + 12
     },
@@ -200,7 +228,7 @@ export default defineEntity({
       move(draft, pt) { draft.x = pt.x; draft.y = pt.y },
       shapes: (draft) => [{ k: 'circle', x: draft.x, y: draft.y, r: 13, fill: 'rgba(226,112,74,.5)', stroke: '#e2704a', sw: 2, dash: '4 4' }],
       finish: (draft) => (draft.ready
-        ? { x: draft.x, y: draft.y, r: 13, builtR: 13, mass: 1, builtMass: 1, anchorable: true, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' }
+        ? { x: draft.x, y: draft.y, r: 13, builtR: 13, mass: 1, builtMass: 1, anchorable: true, asleep: false, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' }
         : null),
     },
 
@@ -216,6 +244,7 @@ export default defineEntity({
       { key: 'mass', label: 'Вес свободного', type: 'range', min: -4, max: 6, step: 0.1, global: true },
       { key: 'builtMass', label: 'Вес в конструкции (минус — летает)', type: 'range', min: -8, max: 6, step: 0.1, global: true },
       { key: 'anchorable', label: 'К нему можно цепляться', type: 'bool', global: true },
+      { key: 'asleep', label: 'Спящий', type: 'bool' },
       { key: 'minLinks', label: 'Связей минимум', type: 'number', min: 1, max: 6, step: 1 },
       { key: 'maxLinks', label: 'Связей максимум', type: 'number', min: 1, max: 6, step: 1 },
       { key: 'range', label: 'Дальность связи', type: 'range', min: 60, max: 400, step: 5 },
@@ -240,6 +269,45 @@ function applyProfile(rt, ctx, data, inStructure) {
   p.radius = inStructure ? (data.builtR ?? data.r) : data.r
 }
 
+// Заход на конструкцию: выбираем ближайшую точку проходимой связи и доходим
+// до неё по прямой — без рывка на месте.
+function startClimb(rt, ctx, target) {
+  const p = rt.p
+  let best = null
+  for (const l of target.links) {
+    if (!passable(other(l, target))) continue
+    const q = closestOnSegment(p.x, p.y, l.a.x, l.a.y, l.b.x, l.b.y)
+    const dist = Math.hypot(p.x - q.x, p.y - q.y)
+    if (!best || dist < best.dist) best = { link: l, t: q.t, dist }
+  }
+  if (!best) return false
+  rt.state = 'climb'
+  rt.climb = { link: best.link, t: best.t, k: 0, dur: Math.max(0.1, best.dist / 220), fx: p.x, fy: p.y }
+  p.pinned = true
+  return true
+}
+
+function climb(rt, ctx, dt, data) {
+  const p = rt.p
+  const c = rt.climb
+  if (!c || !c.link || c.link.removed) { rt.state = 'free'; p.pinned = false; return }
+  c.k = Math.min(1, c.k + dt / c.dur)
+  const a = c.link.a, b = c.link.b
+  const tx = a.x + (b.x - a.x) * c.t, ty = a.y + (b.y - a.y) * c.t
+  const e = c.k * c.k * (3 - 2 * c.k)
+  p.x = c.fx + (tx - c.fx) * e
+  p.y = c.fy + (ty - c.fy) * e
+  p.px = p.x; p.py = p.y
+  rt.look = { x: tx - c.fx, y: ty - c.fy }
+  const n = Math.hypot(rt.look.x, rt.look.y) || 1
+  rt.look.x /= n; rt.look.y /= n
+  if (c.k >= 1) {
+    rt.state = 'walk'
+    rt.walk = { link: c.link, from: a, t: c.t }
+    rt.climb = null
+  }
+}
+
 // По чьим связям вообще можно ползать: узел должен разрешать зацеп,
 // а всасывание — это законный конец пути.
 const passable = (q) => q.attachable || q.suction > 0
@@ -261,13 +329,7 @@ function roam(rt, ctx, dt, data) {
     if (rt.retreat <= 0 && Math.abs(dx) > p.radius * 1.5) rt.dir = Math.sign(dx)
 
     // дошёл — лезем по конструкции, но только по проходимым связям
-    const ways = target.links.filter((l) => passable(other(l, target)))
-    if (d < p.radius + target.radius + 10 && ways.length) {
-      rt.state = 'walk'
-      rt.walk = { link: ways[(Math.random() * ways.length) | 0], from: target, t: 0 }
-      p.pinned = true
-      return
-    }
+    if (d < p.radius + target.radius + 10 && startClimb(rt, ctx, target)) return
   } else {
     rt.look = { x: rt.dir, y: 0.25 }
   }
@@ -333,13 +395,7 @@ function drift(rt, ctx, dt, data) {
     const d = Math.hypot(dx, dy) || 1e-9
     rt.look = { x: dx / d, y: dy / d }
     ctx.applyAccel(p, clamp(dx * 6, -700, 700), clamp(dy * 6, -700, 700))
-    const ways = target.links.filter((l) => passable(other(l, target)))
-    if (d < p.radius + target.radius + 10 && ways.length) {
-      rt.state = 'walk'
-      rt.walk = { link: ways[(Math.random() * ways.length) | 0], from: target, t: 0 }
-      p.pinned = true
-      return
-    }
+    if (d < p.radius + target.radius + 10 && startClimb(rt, ctx, target)) return
   } else {
     rt.look = { x: rt.dir, y: -1 }
     ctx.applyAccel(p, rt.dir * 90, 0)
@@ -388,18 +444,18 @@ function walk(rt, ctx, dt, data) {
     w.t = 0
   }
 
+  // идём ровно по связи, как по рельсу
   const a = w.from, b = other(w.link, w.from)
-  const x = a.x + (b.x - a.x) * w.t
-  const y = a.y + (b.y - a.y) * w.t
-  let nx = -(b.y - a.y), ny = b.x - a.x
-  const n = Math.hypot(nx, ny) || 1
-  nx /= n; ny /= n
-  const g = ctx.gravity
-  if (nx * g.x + ny * g.y > 0) { nx = -nx; ny = -ny }
-  const off = p.radius * 0.7
-  p.x = x + nx * off; p.y = y + ny * off
+  p.x = a.x + (b.x - a.x) * w.t
+  p.y = a.y + (b.y - a.y) * w.t
   p.px = p.x; p.py = p.y
   p.pinned = true
+
+  // но вес свой конструкции отдаём: концы связи получают его по долям
+  const g = ctx.gravity
+  const s = 1 - w.t
+  if (!a.pinned) ctx.applyAccel(a, (g.x * p.mass * s) / a.mass, (g.y * p.mass * s) / a.mass)
+  if (!b.pinned) ctx.applyAccel(b, (g.x * p.mass * w.t) / b.mass, (g.y * p.mass * w.t) / b.mass)
 }
 
 function nextLink(ctx, node, curLink) {

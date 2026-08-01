@@ -23,6 +23,7 @@ class EntityContext {
   get gravity() { return this.world.physics.gravity }
   get time() { return this.world.time }
   get bounds() { return this.world.bounds }
+  get pointer() { return this.world.pointer }
   get points() { return this.world.physics.points }
   get links() { return this.world.physics.links }
 
@@ -210,6 +211,7 @@ export class World {
     this.time = 0
     this._listeners = {}
     this._drag = null
+    this.pointer = null
     for (const e of level.entities || []) this.spawn(e.type, e.data, e.id, e.parent)
   }
 
@@ -275,7 +277,22 @@ export class World {
   // Сращивание с родителем. Если у родителя есть жёсткое тело, точки ребёнка
   // прирастают к нему: тогда усилие идёт в обе стороны — потянув за ребёнка,
   // можно поднять родителя. Если тела нет, ребёнка просто возит _carry().
+  // Всё дерево привязок — одна сборка: её части не сталкиваются между собой,
+  // поэтому шар, утопленный в объекте, не выстреливает.
+  _regroup(inst) {
+    let root = inst, guard = 0
+    while (root.parent && guard++ < 32) {
+      const up = this.instances.find((i) => i.id === root.parent)
+      if (!up) break
+      root = up
+    }
+    const g = root.id
+    for (const p of inst.ctx._points) p.group = g
+    for (const c of inst.ctx._colliders) c.group = g
+  }
+
   _bind(inst) {
+    this._regroup(inst)
     if (!inst.parent) return
     const parent = this.instances.find((i) => i.id === inst.parent)
     const body = parent?.ctx._bodies[0]
@@ -286,6 +303,8 @@ export class World {
 
   _unbind(inst) {
     if (inst.bound) { this.physics.detachFromBody(inst.bound, inst.ctx._points); inst.bound = null }
+    for (const p of inst.ctx._points) p.group = inst.id
+    for (const c of inst.ctx._colliders) c.group = inst.id
   }
 
   setParent(inst, parentId) {
@@ -312,9 +331,11 @@ export class World {
     return false
   }
   pointerMove(pt) {
+    this.pointer = pt
     const it = this._drag
     if (it) it.def.pointer?.move?.(it.rt, it.ctx, pt, it.data)
   }
+  pointerHover(pt) { this.pointer = pt }
   pointerUp(pt) {
     const it = this._drag
     if (!it) return

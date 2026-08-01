@@ -8,7 +8,7 @@
     @pointermove="onMove"
     @pointerup="onUp"
     @pointercancel="onUp"
-    @pointerleave="onUp"
+    @pointerleave="onLeave"
   >
     <rect :width="w" :height="h" fill="url(#sky)" />
     <defs>
@@ -71,6 +71,7 @@ function onDown(e) {
   world.value.pointerDown(pt(e))
 }
 function onMove(e) { if (props.interactive) world.value.pointerMove(pt(e)) }
+function onLeave(e) { if (!props.interactive) return; world.value.pointerUp(pt(e)); world.value.pointerHover(null) }
 function onUp(e) { if (props.interactive) world.value.pointerUp(pt(e)) }
 
 defineExpose({ restart: build })
