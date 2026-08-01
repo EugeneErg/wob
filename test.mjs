@@ -1,7 +1,7 @@
 import './src/entities/index.js'
 import { World } from './src/core/world.js'
 
-const ball = (x, y) => ({ type: 'game-ball', data: { x, y, r: 13, minLinks: 2, maxLinks: 3, range: 165, seek: 340, color: '#e2704a', linkColor: '#f0b48c' } })
+const ball = (x, y) => ({ type: 'game-ball', data: { x, y, r: 13, minLinks: 2, maxLinks: 3, range: 165, mass: 1, jump: 470, color: '#e2704a', linkColor: '#f0b48c' } })
 
 const level = {
   width: 1600, height: 900, gravity: { x: 0, y: 1800 },

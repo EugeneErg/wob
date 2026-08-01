@@ -20,7 +20,7 @@ defineEmits(['go'])
 
 const ball = (x, y) => ({
   type: 'game-ball',
-  data: { x, y, r: 13, minLinks: 2, maxLinks: 3, range: 165, seek: 340, color: '#e2704a', linkColor: '#f0b48c' },
+  data: { x, y, r: 13, mass: 1, minLinks: 2, maxLinks: 3, range: 165, jump: 470, color: '#e2704a', linkColor: '#f0b48c' },
 })
 
 const demo = {

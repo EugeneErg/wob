@@ -1,4 +1,5 @@
 import { defineEntity } from '../../core/registry.js'
+import { LAYERS } from '../../core/globals.js'
 
 // Системный шар: опора конструкции. К нему всегда можно лепить связи.
 // Приватное свойство сущности — статичный он или физический.
@@ -6,7 +7,7 @@ import { defineEntity } from '../../core/registry.js'
 export default defineEntity({
   type: 'system-ball',
   title: 'Системный шар',
-  z: 10,
+  z: LAYERS.body,
   icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/></svg>',
 
   defaults: () => ({

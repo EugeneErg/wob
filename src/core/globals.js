@@ -14,3 +14,17 @@ export const GLOBAL_PROPS = {
 }
 
 export const GLOBAL_KEYS = Object.keys(GLOBAL_PROPS)
+
+// Слои отрисовки — общая для мира ось глубины, как z-index.
+// Сущность выбирает слой для каждой фигуры; по умолчанию берётся z сущности.
+export const LAYERS = {
+  background: -60,
+  ground: -20,
+  structure: 5,   // связи — всегда под телами
+  body: 20,
+  device: 30,
+  overlay: 70,    // то, что игрок тащит
+}
+
+// Глобальные свойства связи (их выставляет тот, кто связь создал,
+// а уважает весь мир): stiffness, breakStrain, visible.
