@@ -1,18 +1,7 @@
-// entities/index.js
-//
-// ЕДИНСТВЕННОЕ место в проекте, которое перечисляет конкретные сущности.
-// Игра и редактор его не импортируют — они работают через EntityRegistry.
-// Чтобы добавить сущность: создать entities/<name>/index.js по образцу
-// существующих и добавить одну строку registerEntity(...) ниже.
+// Каждая сущность подключается одной строкой. Порядок = порядок кнопок в редакторе.
+// В будущем этот файл заменится загрузкой модулей с сервера — контракт тот же.
 
-import { registerEntity } from '../core/EntityRegistry.js'
-
-import rock from './rock/index.js'
-import ball from './ball/index.js'
-import pipe from './pipe/index.js'
-import anchor from './anchor/index.js'
-
-registerEntity(rock)
-registerEntity(ball)
-registerEntity(pipe)
-registerEntity(anchor)
+import './terrain/index.js'
+import './system-ball/index.js'
+import './game-ball/index.js'
+import './pipe/index.js'

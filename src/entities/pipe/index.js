@@ -1,98 +1,117 @@
-// entities/pipe/index.js
-//
-// Труба засасывает шары. Важно: труба ищет не "сущности типа ball", а любую
-// динамическую сущность (есть .points) с collision=true, попавшую в радиус
-// действия у входного отверстия ("from"). Так труба будет засасывать и
-// любую будущую сущность, если она физически на это похожа.
+import { defineEntity } from '../../core/registry.js'
+import { bboxOfPoints, distToPolyline, nearestEdgeIndex } from '../../core/geom.js'
 
-import PipeGame from './PipeGame.vue'
-import PipeEditor from './PipeEditor.vue'
-import { PROP, readProperty } from '../../core/GlobalProperties.js'
+// Труба. Первая точка ломаной — устье.
+// Глобально устье отдаёт миру "всасывание". Как только рядом оказывается тело,
+// к которому можно лепить связи, труба строит к нему невидимую связь и тянет к себе.
 
-const SUCK_RADIUS = 70
-const SUCK_STRENGTH = 900 // px/s^2 к устью трубы
-const CONSUME_DISTANCE = 14
-
-export default {
+export default defineEntity({
   type: 'pipe',
-  name: 'Труба',
-  icon: '🕳️',
+  title: 'Труба',
+  z: 30,
+  icon: '<svg viewBox="0 0 24 24"><path d="M4 18v-6a5 5 0 0 1 5-5h11" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></svg>',
 
-  createInstance(id, initProps = {}) {
-    const x = initProps.x ?? 0
-    const y = initProps.y ?? 0
-    return {
-      id,
-      type: 'pipe',
-      state: {
-        from: initProps.from ?? { x, y }, // устье — сюда засасывает
-        to: initProps.to ?? { x: x + 90, y: y - 10 },
-        width: 26,
-        _selectedEndpoint: null,
-      },
-      // труба статична и физически "прозрачна" — коллизий с ней нет,
-      // засасывание реализовано отдельным кастомным шагом ниже
+  defaults: () => ({
+    points: [],
+    radius: 30,
+    power: 1,
+    color: '#4c93c4',
+    inner: '#0d1a24',
+  }),
+
+  spawn(ctx, data) {
+    const [mx, my] = data.points[0] || [0, 0]
+    const mouth = ctx.addPoint({
+      x: mx, y: my,
+      radius: data.radius,
+      pinned: true,
+      attachable: false,
+      suction: data.power,
+      collision: { world: false, points: false },
+    })
+    return { mouth, link: null }
+  },
+
+  update(rt, ctx, dt, data) {
+    const m = rt.mouth
+    if (rt.link && rt.link.removed) rt.link = null
+
+    if (rt.link) {
+      const far = rt.link.a === m ? rt.link.b : rt.link.a
+      if (!far.attachable) { ctx.removeLink(rt.link); rt.link = null }
+      return
+    }
+    const t = ctx.nearest(m, (q) => q.attachable, data.radius * 3.5)
+    if (t) {
+      rt.link = ctx.addLink(m, t, {
+        visible: false,
+        stiffness: 0.03,
+        rest: data.radius * 0.8,
+      })
     }
   },
 
-  properties: {
-    [PROP.WEIGHT]: Infinity,
-    [PROP.COLLISION]: false,
-    [PROP.SMOOTHNESS]: 0.5,
-    [PROP.BONDABLE]: false,
-    [PROP.Z_INDEX]: 5,
+  shapes(data, rt) {
+    if (data.points.length < 2) return []
+    const [mx, my] = data.points[0]
+    const r = data.radius
+    const active = !!rt?.link
+    const out = [
+      { k: 'poly', pts: data.points, stroke: data.color, sw: r * 2, cap: 'round', join: 'round' },
+      { k: 'poly', pts: data.points, stroke: data.inner, sw: r * 2 - 10, cap: 'round', join: 'round' },
+      { k: 'poly', pts: data.points, stroke: active ? '#8fe0ff' : '#2f5c78', sw: 6, cap: 'round', join: 'round', dash: '14 16', class: active ? 'flow' : '' },
+      { k: 'circle', x: mx, y: my, r, fill: 'none', stroke: data.color, sw: 6 },
+      { k: 'circle', x: mx, y: my, r: r - 6, fill: data.inner },
+    ]
+    if (active) out.push({ k: 'circle', x: mx, y: my, r: r + 6, fill: 'none', stroke: '#8fe0ff', sw: 2, opacity: 0.5, class: 'pulse' })
+    return out
   },
-
-  physics: {
-    update(instance, dt, world) {
-      const mouth = instance.state.from
-      const entities = world.level.getEntitiesWithDefs()
-      for (const { instance: other, definition: otherDef } of entities) {
-        if (other.id === instance.id) continue
-        if (!other.points?.length) continue // засасывать можно только "точечные" сущности
-        if (!readProperty(other, otherDef, PROP.COLLISION, world)) continue
-
-        const p = other.points[0]
-        const dx = mouth.x - p.x
-        const dy = mouth.y - p.y
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        if (dist > SUCK_RADIUS) continue
-
-        if (dist < CONSUME_DISTANCE) {
-          world.level.removeEntity(other.id)
-          continue
-        }
-        const pull = (SUCK_STRENGTH * (1 - dist / SUCK_RADIUS)) * dt
-        p.applyImpulse((dx / dist) * pull, (dy / dist) * pull)
-      }
-    },
-  },
-
-  GameComponent: PipeGame,
-  EditorComponent: PipeEditor,
 
   editor: {
-    getBounds(instance) {
-      const { from, to } = instance.state
-      return {
-        x: Math.min(from.x, to.x) - 10,
-        y: Math.min(from.y, to.y) - 10,
-        width: Math.abs(to.x - from.x) + 20,
-        height: Math.abs(to.y - from.y) + 20,
-      }
+    create: {
+      start: () => ({ points: [], cursor: null }),
+      click(draft, pt) { draft.points.push([pt.x, pt.y]) },
+      move(draft, pt) { draft.cursor = pt },
+      shapes(draft) {
+        const pts = draft.cursor ? [...draft.points, [draft.cursor.x, draft.cursor.y]] : draft.points
+        if (pts.length < 2) return pts.length ? [{ k: 'circle', x: pts[0][0], y: pts[0][1], r: 30, fill: 'none', stroke: '#4c93c4', sw: 2, dash: '5 5' }] : []
+        return [
+          { k: 'poly', pts, stroke: 'rgba(76,147,196,.45)', sw: 60, cap: 'round', join: 'round' },
+          { k: 'circle', x: pts[0][0], y: pts[0][1], r: 30, fill: 'none', stroke: '#8fe0ff', sw: 3 },
+        ]
+      },
+      finish: (draft) => (draft.points.length >= 2
+        ? { points: draft.points, radius: 30, power: 1, color: '#4c93c4', inner: '#0d1a24' }
+        : null),
     },
 
-    onRectSelect(instance, rect) {
-      const inRect = (p) => p.x >= rect.x && p.x <= rect.x + rect.width && p.y >= rect.y && p.y <= rect.y + rect.height
-      if (inRect(instance.state.from)) instance.state._selectedEndpoint = 'from'
-      else if (inRect(instance.state.to)) instance.state._selectedEndpoint = 'to'
-      else instance.state._selectedEndpoint = null
+    bounds(data) {
+      const b = bboxOfPoints(data.points)
+      const r = data.radius
+      return { x: b.x - r, y: b.y - r, w: b.w + r * 2, h: b.h + r * 2 }
+    },
+    hit: (data, pt) => distToPolyline(pt.x, pt.y, data.points) <= data.radius,
+    move(data, dx, dy) { for (const p of data.points) { p[0] += dx; p[1] += dy } },
+
+    handles: (data) => data.points.map(([x, y], i) => ({ id: i, x, y, kind: i === 0 ? 'mouth' : 'node' })),
+    moveHandles(data, ids, dx, dy) {
+      for (const i of ids) { data.points[i][0] += dx; data.points[i][1] += dy }
+    },
+    deleteHandles(data, ids) {
+      const keep = data.points.filter((_, i) => !ids.includes(i))
+      if (keep.length < 2) return false
+      data.points = keep
+      return true
+    },
+    addHandle(data, pt) {
+      const i = nearestEdgeIndex(pt.x, pt.y, data.points)
+      data.points.splice(i + 1, 0, [pt.x, pt.y])
     },
 
-    onClearSelection(instance) {
-      instance.state._selectedEndpoint = null
-    },
-
-    propertiesSchema: [{ key: 'width', label: 'Диаметр', type: 'number', min: 10, step: 2 }],
+    props: () => [
+      { key: 'power', label: 'Всасывание', type: 'range', min: 0, max: 3, step: 0.1, global: true },
+      { key: 'radius', label: 'Диаметр устья', type: 'range', min: 14, max: 60, step: 1 },
+      { key: 'color', label: 'Цвет', type: 'color' },
+    ],
   },
-}
+})
