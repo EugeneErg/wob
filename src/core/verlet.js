@@ -1,17 +1,6 @@
 // core/verlet.js
-//
-// Минимальные примитивы Verlet-интеграции. Сущности используют их
-// для построения своей физики (шар — одна точка, связь — стик между
-// точками двух шаров), но сам движок ничего не знает про типы сущностей.
 
 export class VerletPoint {
-  /**
-   * @param {number} x
-   * @param {number} y
-   * @param {object} [opts]
-   * @param {boolean} [opts.pinned] - зафиксирована ли точка (не двигается)
-   * @param {number} [opts.radius]
-   */
   constructor(x, y, opts = {}) {
     this.x = x
     this.y = y
@@ -19,18 +8,27 @@ export class VerletPoint {
     this.oldY = y
     this.pinned = !!opts.pinned
     this.radius = opts.radius ?? 10
-    // произвольные пользовательские данные сущности (id родителя и т.п.)
     this.meta = opts.meta ?? {}
+    this.neighbors = new Set() // id соседей (для collideBalls)
+    this.degree = 0 // количество связей
   }
 
-  update(dt, gravity, damping = 0.995) {
-    if (this.pinned) return
+  update(dt, gravity, damping = 1.0, maxSpeed = 2600) {
+    if (this.pinned) {
+      this.oldX = this.x
+      this.oldY = this.y
+      return
+    }
     const vx = (this.x - this.oldX) * damping
     const vy = (this.y - this.oldY) * damping
+    const v = Math.hypot(vx, vy)
+    const maxV = maxSpeed * dt
+    let scale = 1
+    if (v > maxV) scale = maxV / v
     this.oldX = this.x
     this.oldY = this.y
-    this.x += vx + gravity.x * dt * dt
-    this.y += vy + gravity.y * dt * dt
+    this.x += vx * scale + gravity.x * dt * dt
+    this.y += vy * scale + gravity.y * dt * dt
   }
 
   applyImpulse(ix, iy) {
@@ -45,18 +43,12 @@ export class VerletPoint {
     this.oldX = x
     this.oldY = y
   }
+
+  get vx() { return this.x - this.oldX }
+  get vy() { return this.y - this.oldY }
 }
 
 export class VerletStick {
-  /**
-   * @param {VerletPoint} p1
-   * @param {VerletPoint} p2
-   * @param {object} [opts]
-   * @param {number} [opts.length] - длина покоя (по умолчанию — текущее расстояние)
-   * @param {number} [opts.stiffness] - 0..1
-   * @param {number} [opts.maxStretch] - при каком растяжении связь рвётся (1 = никогда, если breakable=false)
-   * @param {boolean} [opts.breakable]
-   */
   constructor(p1, p2, opts = {}) {
     this.p1 = p1
     this.p2 = p2
@@ -65,63 +57,72 @@ export class VerletStick {
     this.breakable = opts.breakable ?? false
     this.maxStretch = opts.maxStretch ?? 1.6
     this.broken = false
+    this.dead = false
+    this.stress = 0
+    this.damage = 0
   }
 
-  /** @returns {boolean} true если связь порвалась в этом шаге */
-  satisfy() {
-    if (this.broken) return false
-    const dx = this.p2.x - this.p1.x
-    const dy = this.p2.y - this.p1.y
-    const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001
-    if (this.breakable && dist > this.length * this.maxStretch) {
-      this.broken = true
-      return true
+  satisfy(tearOrigin = null, tearing = null) {
+    if (this.broken || this.dead) return false
+
+    let ax = this.p1.x, ay = this.p1.y
+    let bx = this.p2.x, by = this.p2.y
+
+    // Если шар в руке — связи тянутся к tearOrigin, не к курсору
+    if (tearOrigin) {
+      if (this.p1 === tearing) { ax = tearOrigin.x; ay = tearOrigin.y }
+      else if (this.p2 === tearing) { bx = tearOrigin.x; by = tearOrigin.y }
     }
-    const diff = (this.length - dist) / dist
-    const offsetX = dx * diff * 0.5 * this.stiffness
-    const offsetY = dy * diff * 0.5 * this.stiffness
-    if (!this.p1.pinned) {
-      this.p1.x -= offsetX
-      this.p1.y -= offsetY
-    }
-    if (!this.p2.pinned) {
-      this.p2.x += offsetX
-      this.p2.y += offsetY
-    }
+
+    const dx = bx - ax
+    const dy = by - ay
+    const dist = Math.hypot(dx, dy) || 0.0001
+
+    const ma = this.p1.pinned ? 0 : 1
+    const mb = this.p2.pinned ? 0 : 1
+    const total = ma + mb
+    if (total === 0) return false
+
+    const k = Math.min(1, this.stiffness)
+    const diff = ((dist - this.length) / dist) * k
+    const wa = ma / total
+    const wb = mb / total
+
+    this.p1.x += dx * diff * wa
+    this.p1.y += dy * diff * wa
+    this.p2.x -= dx * diff * wb
+    this.p2.y -= dy * diff * wb
+
     return false
   }
 }
 
 export function distance(a, b) {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
-  return Math.sqrt(dx * dx + dy * dy)
+  return Math.hypot(b.x - a.x, b.y - a.y)
 }
 
-/** Точка внутри выпуклого/невыпуклого полигона (ray casting) — нужно для коллизий с породой */
+export function closestPointOnSegment(px, py, a, b) {
+  const ax = a.x, ay = a.y
+  const bx = b.x, by = b.y
+  const dx = bx - ax, dy = by - ay
+  const len2 = dx * dx + dy * dy
+  if (len2 === 0) return { x: ax, y: ay, dist: Math.hypot(px - ax, py - ay), nx: ax - px, ny: ay - py }
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2
+  t = Math.max(0, Math.min(1, t))
+  const cx = ax + t * dx
+  const cy = ay + t * dy
+  const ddx = px - cx, ddy = py - cy
+  const dist = Math.hypot(ddx, ddy)
+  return { x: cx, y: cy, dist, nx: ddx, ny: ddy }
+}
+
 export function pointInPolygon(px, py, points) {
   let inside = false
   for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
     const xi = points[i].x, yi = points[i].y
     const xj = points[j].x, yj = points[j].y
-    const intersect =
-      yi > py !== yj > py &&
-      px < ((xj - xi) * (py - yi)) / (yj - yi) + xi
+    const intersect = ((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)
     if (intersect) inside = !inside
   }
   return inside
-}
-
-/** Ближайшая точка на отрезке ab к точке p, плюс дистанция и нормаль */
-export function closestPointOnSegment(p, a, b) {
-  const abx = b.x - a.x
-  const aby = b.y - a.y
-  const lenSq = abx * abx + aby * aby || 0.0001
-  let t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq
-  t = Math.max(0, Math.min(1, t))
-  const cx = a.x + abx * t
-  const cy = a.y + aby * t
-  const dx = p.x - cx
-  const dy = p.y - cy
-  return { x: cx, y: cy, dist: Math.sqrt(dx * dx + dy * dy), nx: dx, ny: dy }
 }

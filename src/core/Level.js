@@ -85,12 +85,6 @@ export function createLevel() {
 
     if (!a.points?.length || !b.points?.length) return
 
-    // Проверка maxBonds для обеих сторон (BONDABLE проверяется в UI)
-    const aBonds = countBonds(aId)
-    const bBonds = countBonds(bId)
-    if (a.state?.maxBonds !== undefined && aBonds >= a.state.maxBonds) return
-    if (b.state?.maxBonds !== undefined && bBonds >= b.state.maxBonds) return
-
     const p1 = a.points[0]
     const p2 = b.points[0]
     const dist = distance(p1, p2)
@@ -117,6 +111,10 @@ export function createLevel() {
     )
     if (idx === -1) return
     const [conn] = state.connections.splice(idx, 1)
+    if (conn.stick) {
+      conn.stick.dead = true
+      conn.stick.broken = true
+    }
     const a = getInstance(conn.aId)
     if (a?.sticks) {
       a.sticks = a.sticks.filter((s) => s !== conn.stick)
