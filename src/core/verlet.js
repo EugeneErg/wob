@@ -70,6 +70,13 @@ export class Physics {
 
   applyAccel(p, ax, ay) { p.ax += ax; p.ay += ay }
 
+  // Вес можно менять по ходу игры; знак так же означает подъёмную силу
+  setMass(p, m) {
+    p.lift = m < 0
+    p.mass = Math.max(Math.abs(m), 0.05)
+    p.gravityScale = p.lift ? -1 : 1
+  }
+
   // ---- связи ---------------------------------------------------------------
   addLink(a, b, o = {}) {
     const l = {

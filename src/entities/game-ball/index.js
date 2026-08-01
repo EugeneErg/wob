@@ -24,8 +24,12 @@ export default defineEntity({
   icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor"/><circle cx="9.7" cy="10.5" r="2" fill="#fff"/><circle cx="14.3" cy="10.5" r="2" fill="#fff"/></svg>',
 
   defaults: () => ({
-    x: 0, y: 0, r: 13,
-    mass: 1,
+    x: 0, y: 0,
+    r: 13,          // свободный
+    builtR: 13,     // в конструкции
+    mass: 1,        // свободный
+    builtMass: 1,   // в конструкции
+    anchorable: true, // можно ли цепляться к нему самому
     minLinks: 2,
     maxLinks: 3,
     range: 165,
@@ -57,7 +61,10 @@ export default defineEntity({
     rt.links = rt.links.filter((l) => !l.removed)
     if (p.y > ctx.bounds.y + ctx.bounds.h + 400) { ctx.emit('ball:lost'); ctx.despawnSelf(); return }
 
-    p.attachable = rt.state === 'built' || rt.state === 'pull'
+    const inStructure = rt.state === 'built' || rt.state === 'pull'
+    // цепляться можно только к тому, кто это разрешает
+    p.attachable = inStructure && data.anchorable !== false
+    applyProfile(rt, ctx, data, inStructure)
     rt.cd = Math.max(0, rt.cd - dt)
     // у подъёмной силы есть потолок: у верхней кромки уровня она сходит на нет
     if (p.lift) p.gravityScale = -clamp((p.y - (ctx.bounds.y + 40)) / 150, -1, 1)
@@ -80,7 +87,8 @@ export default defineEntity({
   shapes(data, rt) {
     const p = rt?.p
     const st = rt?.state
-    const r = data.r
+    const r = p ? p.radius : data.r
+    const lift = p ? p.lift : data.mass < 0
     const out = []
 
     // связи рисует тот, кто их построил; невидимые пропускаем
@@ -111,7 +119,7 @@ export default defineEntity({
     }
 
     const layer = ghost ? LAYERS.overlay : undefined
-    if (data.mass < 0) {
+    if (lift) {
       out.push({ k: 'circle', layer, x, y, r: r + 5, fill: 'none', stroke: data.color, sw: 1.5, opacity: 0.5 })
       for (const s of [-1, 1]) {
         out.push({ k: 'line', layer, x: 0, y: 0, x1: x + s * r * 0.5, y1: y + r * 1.0, x2: x + s * r * 0.25, y2: y + r * 1.7, stroke: data.color, sw: 2, cap: 'round', opacity: 0.55 })
@@ -133,7 +141,7 @@ export default defineEntity({
   pointer: {
     hit(rt, ctx, pt, data) {
       const at = (rt.state === 'pull' || rt.state === 'drag') && rt.ghost ? rt.ghost : rt.p
-      return Math.hypot(pt.x - at.x, pt.y - at.y) <= data.r + 12
+      return Math.hypot(pt.x - at.x, pt.y - at.y) <= rt.p.radius + 12
     },
     down(rt, ctx, pt, data) {
       rt.ghost = { x: rt.p.x, y: rt.p.y }
@@ -192,7 +200,7 @@ export default defineEntity({
       move(draft, pt) { draft.x = pt.x; draft.y = pt.y },
       shapes: (draft) => [{ k: 'circle', x: draft.x, y: draft.y, r: 13, fill: 'rgba(226,112,74,.5)', stroke: '#e2704a', sw: 2, dash: '4 4' }],
       finish: (draft) => (draft.ready
-        ? { x: draft.x, y: draft.y, r: 13, mass: 1, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' }
+        ? { x: draft.x, y: draft.y, r: 13, builtR: 13, mass: 1, builtMass: 1, anchorable: true, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' }
         : null),
     },
 
@@ -205,18 +213,36 @@ export default defineEntity({
     deleteHandles: () => false,
 
     props: () => [
-      { key: 'mass', label: 'Вес (минус — летает)', type: 'range', min: -4, max: 6, step: 0.1, global: true },
+      { key: 'mass', label: 'Вес свободного', type: 'range', min: -4, max: 6, step: 0.1, global: true },
+      { key: 'builtMass', label: 'Вес в конструкции (минус — летает)', type: 'range', min: -8, max: 6, step: 0.1, global: true },
+      { key: 'anchorable', label: 'К нему можно цепляться', type: 'bool', global: true },
       { key: 'minLinks', label: 'Связей минимум', type: 'number', min: 1, max: 6, step: 1 },
       { key: 'maxLinks', label: 'Связей максимум', type: 'number', min: 1, max: 6, step: 1 },
       { key: 'range', label: 'Дальность связи', type: 'range', min: 60, max: 400, step: 5 },
       { key: 'jump', label: 'Прыжок', type: 'range', min: 0, max: 900, step: 10 },
       { key: 'speed', label: 'Скорость шага', type: 'range', min: 20, max: 300, step: 5 },
       { key: 'dropMax', label: 'Не прыгает вниз выше', type: 'range', min: 0, max: 600, step: 10 },
-      { key: 'r', label: 'Радиус', type: 'range', min: 8, max: 30, step: 1 },
+      { key: 'r', label: 'Радиус свободного', type: 'range', min: 8, max: 40, step: 1 },
+      { key: 'builtR', label: 'Радиус в конструкции', type: 'range', min: 8, max: 60, step: 1 },
       { key: 'color', label: 'Цвет', type: 'color' },
     ],
   },
 })
+
+// Вес и размер у свободного шара и у встроенного разные: пока шар в руках игрока он
+// обычный, а в конструкции может стать, например, легче воздуха и раздуться.
+function applyProfile(rt, ctx, data, inStructure) {
+  const want = inStructure ? 'built' : 'free'
+  if (rt.profile === want) return
+  rt.profile = want
+  const p = rt.p
+  ctx.setMass(p, inStructure ? (data.builtMass ?? data.mass) : data.mass)
+  p.radius = inStructure ? (data.builtR ?? data.r) : data.r
+}
+
+// По чьим связям вообще можно ползать: узел должен разрешать зацеп,
+// а всасывание — это законный конец пути.
+const passable = (q) => q.attachable || q.suction > 0
 
 // Свободный шар: идёт к конструкции, прыгает, тормозит у обрыва и не стоит на месте.
 // Конструкция — это точка, к которой можно лепить связи И у которой уже есть связи:
@@ -234,10 +260,11 @@ function roam(rt, ctx, dt, data) {
     rt.look = { x: dx / d, y: dy / d }
     if (rt.retreat <= 0 && Math.abs(dx) > p.radius * 1.5) rt.dir = Math.sign(dx)
 
-    // дошёл — лезем по конструкции
-    if (d < p.radius + target.radius + 10 && target.links.length) {
+    // дошёл — лезем по конструкции, но только по проходимым связям
+    const ways = target.links.filter((l) => passable(other(l, target)))
+    if (d < p.radius + target.radius + 10 && ways.length) {
       rt.state = 'walk'
-      rt.walk = { link: target.links[(Math.random() * target.links.length) | 0], from: target, t: 0 }
+      rt.walk = { link: ways[(Math.random() * ways.length) | 0], from: target, t: 0 }
       p.pinned = true
       return
     }
@@ -306,9 +333,10 @@ function drift(rt, ctx, dt, data) {
     const d = Math.hypot(dx, dy) || 1e-9
     rt.look = { x: dx / d, y: dy / d }
     ctx.applyAccel(p, clamp(dx * 6, -700, 700), clamp(dy * 6, -700, 700))
-    if (d < p.radius + target.radius + 10 && target.links.length) {
+    const ways = target.links.filter((l) => passable(other(l, target)))
+    if (d < p.radius + target.radius + 10 && ways.length) {
       rt.state = 'walk'
-      rt.walk = { link: target.links[(Math.random() * target.links.length) | 0], from: target, t: 0 }
+      rt.walk = { link: ways[(Math.random() * ways.length) | 0], from: target, t: 0 }
       p.pinned = true
       return
     }
@@ -340,7 +368,8 @@ function walk(rt, ctx, dt, data) {
   if (!w || !w.link || w.link.removed) { rt.state = 'free'; p.pinned = false; return }
 
   const ahead = other(w.link, w.from)
-  const path = ctx.pathFrom(ahead, (q) => q.suction > 0)
+  if (!passable(ahead)) { rt.state = 'free'; p.pinned = false; return }
+  const path = ctx.pathFrom(ahead, (q) => q.suction > 0, passable)
   const suck = path ? path[path.length - 1].suction : 0
   const speed = path ? 80 + 150 * clamp(suck, 0, 3) : 55
 
@@ -352,7 +381,9 @@ function walk(rt, ctx, dt, data) {
   if (w.t >= 1) {
     const node = ahead
     if (node.suction > 0) { ctx.emit('ball:collected'); ctx.despawnSelf(); return }
-    w.link = nextLink(ctx, node, w.link)
+    const next = nextLink(ctx, node, w.link)
+    if (!next) { rt.state = 'free'; p.pinned = false; return }
+    w.link = next
     w.from = node
     w.t = 0
   }
@@ -365,19 +396,21 @@ function walk(rt, ctx, dt, data) {
   nx /= n; ny /= n
   const g = ctx.gravity
   if (nx * g.x + ny * g.y > 0) { nx = -nx; ny = -ny }
-  const off = data.r * 0.7
+  const off = p.radius * 0.7
   p.x = x + nx * off; p.y = y + ny * off
   p.px = p.x; p.py = p.y
   p.pinned = true
 }
 
 function nextLink(ctx, node, curLink) {
-  const path = ctx.pathFrom(node, (q) => q.suction > 0)
+  const ok = node.links.filter((l) => passable(other(l, node)))
+  const path = ctx.pathFrom(node, (q) => q.suction > 0, passable)
   if (path && path.length > 1) {
     const want = path[1]
-    const l = node.links.find((ln) => other(ln, node) === want)
+    const l = ok.find((ln) => other(ln, node) === want)
     if (l) return l
   }
-  const opts = node.links.filter((l) => l !== curLink)
-  return opts.length ? opts[(Math.random() * opts.length) | 0] : curLink
+  const opts = ok.filter((l) => l !== curLink)
+  if (opts.length) return opts[(Math.random() * opts.length) | 0]
+  return ok.includes(curLink) ? curLink : null
 }

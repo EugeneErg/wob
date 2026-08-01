@@ -15,7 +15,7 @@ console.log('старт: верх плиты', top().toFixed(0), '| ползут
 
 // игрок цепляет летающие шары к конструкции на плите
 let used = 0
-for (const b of balls().filter((q) => q.data.mass < 0)) {
+for (const b of balls().filter((q) => q.data.builtMass < 0)) {
   if (used >= 4) break
   const p = b.rt.p
   const drop = { x: 600 + used * 45, y: 690 - used * 8 }

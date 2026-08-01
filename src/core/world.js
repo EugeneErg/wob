@@ -51,6 +51,7 @@ class EntityContext {
   removePoint(p) { this.world.physics.removePoint(p) }
   removeLink(l) { this.world.physics.removeLink(l) }
   applyAccel(p, ax, ay) { this.world.physics.applyAccel(p, ax, ay) }
+  setMass(p, m) { this.world.physics.setMass(p, m) }
 
   // --- запросы к миру -------------------------------------------------------
   query(pred) { return this.world.physics.points.filter(pred) }
@@ -85,8 +86,9 @@ class EntityContext {
     return false
   }
 
-  // Кратчайший путь по графу связей до любой точки, удовлетворяющей pred.
-  pathFrom(start, pred) {
+  // Кратчайший путь по графу связей до точки, удовлетворяющей pred.
+  // via ограничивает, через какие узлы вообще можно идти.
+  pathFrom(start, pred, via = null) {
     if (pred(start)) return [start]
     const prev = new Map([[start, null]])
     const queue = [start]
@@ -95,6 +97,7 @@ class EntityContext {
       for (const l of cur.links) {
         const nx = l.a === cur ? l.b : l.a
         if (prev.has(nx)) continue
+        if (via && !via(nx) && !pred(nx)) continue
         prev.set(nx, cur)
         if (pred(nx)) {
           const path = [nx]

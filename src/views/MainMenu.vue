@@ -22,7 +22,7 @@ let n = 0
 const ball = (x, y) => ({
   id: 'mb' + n++,
   type: 'game-ball',
-  data: { x, y, r: 13, mass: 1, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' },
+  data: { x, y, r: 13, builtR: 13, mass: 1, builtMass: 1, anchorable: true, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' },
 })
 
 const demo = {

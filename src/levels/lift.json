@@ -191,7 +191,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -209,7 +212,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -227,7 +233,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -245,7 +254,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -263,7 +275,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -281,7 +296,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -299,7 +317,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -308,16 +329,19 @@
    "data": {
     "x": 980,
     "y": 700,
-    "r": 13,
-    "mass": -4,
-    "minLinks": 2,
-    "maxLinks": 3,
+    "r": 12,
+    "mass": 1,
+    "minLinks": 1,
+    "maxLinks": 1,
     "range": 165,
     "jump": 470,
     "speed": 95,
     "dropMax": 190,
     "color": "#9ad0e8",
-    "linkColor": "#f0b48c"
+    "linkColor": "#cfe9f5",
+    "builtR": 26,
+    "builtMass": -5,
+    "anchorable": false
    }
   },
   {
@@ -326,16 +350,19 @@
    "data": {
     "x": 1050,
     "y": 700,
-    "r": 13,
-    "mass": -4,
-    "minLinks": 2,
-    "maxLinks": 3,
+    "r": 12,
+    "mass": 1,
+    "minLinks": 1,
+    "maxLinks": 1,
     "range": 165,
     "jump": 470,
     "speed": 95,
     "dropMax": 190,
     "color": "#9ad0e8",
-    "linkColor": "#f0b48c"
+    "linkColor": "#cfe9f5",
+    "builtR": 26,
+    "builtMass": -5,
+    "anchorable": false
    }
   },
   {
@@ -344,16 +371,19 @@
    "data": {
     "x": 1120,
     "y": 700,
-    "r": 13,
-    "mass": -4,
-    "minLinks": 2,
-    "maxLinks": 3,
+    "r": 12,
+    "mass": 1,
+    "minLinks": 1,
+    "maxLinks": 1,
     "range": 165,
     "jump": 470,
     "speed": 95,
     "dropMax": 190,
     "color": "#9ad0e8",
-    "linkColor": "#f0b48c"
+    "linkColor": "#cfe9f5",
+    "builtR": 26,
+    "builtMass": -5,
+    "anchorable": false
    }
   },
   {
@@ -362,16 +392,19 @@
    "data": {
     "x": 1190,
     "y": 700,
-    "r": 13,
-    "mass": -4,
-    "minLinks": 2,
-    "maxLinks": 3,
+    "r": 12,
+    "mass": 1,
+    "minLinks": 1,
+    "maxLinks": 1,
     "range": 165,
     "jump": 470,
     "speed": 95,
     "dropMax": 190,
     "color": "#9ad0e8",
-    "linkColor": "#f0b48c"
+    "linkColor": "#cfe9f5",
+    "builtR": 26,
+    "builtMass": -5,
+    "anchorable": false
    }
   },
   {
@@ -380,16 +413,19 @@
    "data": {
     "x": 1260,
     "y": 700,
-    "r": 13,
-    "mass": -4,
-    "minLinks": 2,
-    "maxLinks": 3,
+    "r": 12,
+    "mass": 1,
+    "minLinks": 1,
+    "maxLinks": 1,
     "range": 165,
     "jump": 470,
     "speed": 95,
     "dropMax": 190,
     "color": "#9ad0e8",
-    "linkColor": "#f0b48c"
+    "linkColor": "#cfe9f5",
+    "builtR": 26,
+    "builtMass": -5,
+    "anchorable": false
    }
   },
   {
@@ -398,16 +434,19 @@
    "data": {
     "x": 1015,
     "y": 700,
-    "r": 13,
-    "mass": -4,
-    "minLinks": 2,
-    "maxLinks": 3,
+    "r": 12,
+    "mass": 1,
+    "minLinks": 1,
+    "maxLinks": 1,
     "range": 165,
     "jump": 470,
     "speed": 95,
     "dropMax": 190,
     "color": "#9ad0e8",
-    "linkColor": "#f0b48c"
+    "linkColor": "#cfe9f5",
+    "builtR": 26,
+    "builtMass": -5,
+    "anchorable": false
    }
   },
   {
@@ -416,16 +455,19 @@
    "data": {
     "x": 1085,
     "y": 700,
-    "r": 13,
-    "mass": -4,
-    "minLinks": 2,
-    "maxLinks": 3,
+    "r": 12,
+    "mass": 1,
+    "minLinks": 1,
+    "maxLinks": 1,
     "range": 165,
     "jump": 470,
     "speed": 95,
     "dropMax": 190,
     "color": "#9ad0e8",
-    "linkColor": "#f0b48c"
+    "linkColor": "#cfe9f5",
+    "builtR": 26,
+    "builtMass": -5,
+    "anchorable": false
    }
   }
  ]

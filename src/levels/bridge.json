@@ -145,7 +145,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -163,7 +166,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -181,7 +187,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -199,7 +208,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -217,7 +229,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -235,7 +250,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -253,7 +271,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -271,7 +292,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -289,7 +313,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -307,7 +334,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -325,7 +355,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -343,7 +376,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -361,7 +397,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -379,7 +418,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -397,7 +439,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   },
   {
@@ -415,7 +460,10 @@
     "speed": 95,
     "dropMax": 190,
     "color": "#e2704a",
-    "linkColor": "#f0b48c"
+    "linkColor": "#f0b48c",
+    "builtR": 13,
+    "builtMass": 1,
+    "anchorable": true
    }
   }
  ]
