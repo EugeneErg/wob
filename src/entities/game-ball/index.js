@@ -30,6 +30,8 @@ export default defineEntity({
     maxLinks: 3,
     range: 165,
     jump: 470,
+    speed: 95,
+    dropMax: 190,
     color: '#e2704a',
     linkColor: '#f0b48c',
   }),
@@ -44,7 +46,10 @@ export default defineEntity({
       collision: { world: true, points: false },
       attachable: false,
     })
-    return { p, state: 'free', walk: null, links: [], preview: [], ghost: null, cd: 0, look: { x: 0, y: 1 } }
+    return {
+      p, state: 'free', walk: null, links: [], preview: [], ghost: null,
+      cd: 0, dir: Math.random() < 0.5 ? -1 : 1, pause: 0, retreat: 0, look: { x: 0, y: 1 },
+    }
   },
 
   update(rt, ctx, dt, data) {
@@ -67,33 +72,7 @@ export default defineEntity({
     }
     if (rt.state === 'walk') return walk(rt, ctx, dt, data)
 
-    // --- свободный шар: всегда идёт к ближайшей конструкции ---
-    p.pinned = false
-    const target = ctx.nearest(p, (q) => q !== p && q.attachable)
-    if (!target) { rt.look = { x: 0, y: 1 }; return }
-
-    const dx = target.x - p.x, dy = target.y - p.y
-    const d = Math.hypot(dx, dy) || 1e-9
-    rt.look = { x: dx / d, y: dy / d }
-    // пропорциональное подруливание, чтобы не проскакивать цель насквозь
-    const grounded = Math.abs(p.y - p.py) < 1
-    const vx = (p.x - p.px) * 120
-    const air = grounded ? 1 : 0.25
-    const want = clamp(dx * 7, -900, 900)
-    ctx.applyAccel(p, Math.abs(vx) > 220 && Math.sign(vx) === Math.sign(want) ? 0 : want * air, (dy / d) * 150 * air)
-
-    // конструкция прямо над головой — подпрыгиваем
-    if (dy < -(p.radius + target.radius + 40) && Math.abs(dx) < 150 && grounded && rt.cd === 0) {
-      p.py = p.y + (data.jump ?? 470) / 120
-      rt.cd = 0.7 + Math.random() * 0.5
-    }
-
-    if (d < p.radius + target.radius + 10 && target.links.length) {
-      const link = target.links[(Math.random() * target.links.length) | 0]
-      rt.state = 'walk'
-      rt.walk = { link, from: target, t: 0 }
-      p.pinned = true
-    }
+    return roam(rt, ctx, dt, data)
   },
 
   shapes(data, rt) {
@@ -205,7 +184,7 @@ export default defineEntity({
       move(draft, pt) { draft.x = pt.x; draft.y = pt.y },
       shapes: (draft) => [{ k: 'circle', x: draft.x, y: draft.y, r: 13, fill: 'rgba(226,112,74,.5)', stroke: '#e2704a', sw: 2, dash: '4 4' }],
       finish: (draft) => (draft.ready
-        ? { x: draft.x, y: draft.y, r: 13, mass: 1, minLinks: 2, maxLinks: 3, range: 165, jump: 470, color: '#e2704a', linkColor: '#f0b48c' }
+        ? { x: draft.x, y: draft.y, r: 13, mass: 1, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' }
         : null),
     },
 
@@ -223,11 +202,85 @@ export default defineEntity({
       { key: 'maxLinks', label: 'Связей максимум', type: 'number', min: 1, max: 6, step: 1 },
       { key: 'range', label: 'Дальность связи', type: 'range', min: 60, max: 400, step: 5 },
       { key: 'jump', label: 'Прыжок', type: 'range', min: 0, max: 900, step: 10 },
+      { key: 'speed', label: 'Скорость шага', type: 'range', min: 20, max: 300, step: 5 },
+      { key: 'dropMax', label: 'Не прыгает вниз выше', type: 'range', min: 0, max: 600, step: 10 },
       { key: 'r', label: 'Радиус', type: 'range', min: 8, max: 30, step: 1 },
       { key: 'color', label: 'Цвет', type: 'color' },
     ],
   },
 })
+
+// Свободный шар: идёт к конструкции, прыгает, тормозит у обрыва и не стоит на месте.
+// Конструкция — это точка, к которой можно лепить связи И у которой уже есть связи:
+// одинокий шар конструкцией не считается.
+function roam(rt, ctx, dt, data) {
+  const p = rt.p
+  p.pinned = false
+  const grounded = Math.abs(p.y - p.py) < 1.2
+  const target = ctx.nearest(p, (q) => q !== p && q.attachable && q.links.length > 0)
+
+  if (target) {
+    const dx = target.x - p.x, dy = target.y - p.y
+    const d = Math.hypot(dx, dy) || 1e-9
+    rt.look = { x: dx / d, y: dy / d }
+    if (rt.retreat <= 0 && Math.abs(dx) > p.radius * 1.5) rt.dir = Math.sign(dx)
+
+    // дошёл — лезем по конструкции
+    if (d < p.radius + target.radius + 10 && target.links.length) {
+      rt.state = 'walk'
+      rt.walk = { link: target.links[(Math.random() * target.links.length) | 0], from: target, t: 0 }
+      p.pinned = true
+      return
+    }
+  } else {
+    rt.look = { x: rt.dir, y: 0.25 }
+  }
+
+  // щупаем землю перед собой
+  const foot = p.y + p.radius + 3
+  const ahead = p.x + rt.dir * (p.radius + 10)
+  const floor = ctx.solidAt(ahead, foot)
+  const wall = ctx.solidAt(p.x + rt.dir * (p.radius + 5), p.y - p.radius * 0.3)
+  let drop = null
+  if (!floor) {
+    for (let d = 12; d <= (data.dropMax ?? 190); d += 12) {
+      if (ctx.solidAt(ahead, foot + d)) { drop = d; break }
+    }
+  }
+
+  rt.retreat = Math.max(0, rt.retreat - dt)
+  let go = rt.dir
+  if (rt.pause > 0) {
+    rt.pause -= dt
+    go = 0
+    if (rt.pause <= 0) rt.dir = -rt.dir   // постояли у края и развернулись
+  } else if (grounded && !floor) {
+    // за краем: спрыгнуть можно, если внизу есть дно и конструкция в той стороне
+    const toward = !target || Math.sign(target.x - p.x) === rt.dir
+    if (!(drop !== null && toward)) {
+      rt.pause = 0.35 + Math.random() * 0.3
+      rt.retreat = 1.1 + Math.random() * 0.8   // отходим от края, потом вернёмся
+      go = 0
+    }
+  }
+
+  // стена или конструкция над головой — подпрыгиваем
+  const above = target ? target.y - p.y : 0
+  const near = target ? Math.abs(target.x - p.x) < 170 : false
+  if (grounded && rt.cd === 0 && (wall || (above < -(p.radius + 40) && near))) {
+    p.py = p.y + (data.jump ?? 470) / 120
+    rt.cd = 0.45 + Math.random() * 0.35
+    if (wall && !target) rt.dir = -rt.dir
+  }
+
+  // ход: в воздухе управляем слабее, скорость ограничена
+  const v = (p.x - p.px) * 120
+  const air = grounded ? 1 : 0.3
+  const cap = data.speed ?? 95
+  const push = go && Math.abs(v) < cap ? go * 1400 * air : 0
+  const brake = go === 0 && grounded ? -v * 6 : 0
+  ctx.applyAccel(p, push + brake, 0)
+}
 
 // Кандидаты на связь из точки at — только глобальные свойства чужих тел
 function candidatesAt(rt, ctx, at, data) {

@@ -127,6 +127,9 @@ export class Physics {
 
   _sub(dt) {
     const g = this.gravity
+
+    // 1. предсказание: px хранит положение до шага и больше не трогается,
+    //    поэтому любая позиционная коррекция сама становится изменением скорости
     for (const p of this.points) {
       if (p.pinned) { p.px = p.x; p.py = p.y; continue }
       const vx = (p.x - p.px) * this.damping
@@ -136,16 +139,19 @@ export class Physics {
       p.y += vy + (g.y * p.gravityScale + p.ay) * dt * dt
     }
 
+    // 2. решение ограничений — только позиции
     for (const l of this.links) l.lambda = 0
     for (let i = 0; i < this.iterations; i++) {
       this._solveLinks(dt)
       this._solvePairs()
-      this._solveWorld(false)
+      this._collide()
     }
-    this._solveWorld(true)
+
+    // 3. скорость: трение и отскок в контактах, гашение вдоль связей
+    this._contactVelocity()
     this._dampLinks()
 
-    // натяжение = сила в связи; сглаживаем, чтобы не рвать от случайного всплеска
+    // 4. натяжение = сила в связи; сглаживаем, чтобы не рвать от случайного всплеска
     let broken = null
     const k = 1 / (dt * dt)
     for (const l of this.links) {
@@ -158,7 +164,7 @@ export class Physics {
 
   // Податливое ограничение (XPBD): та же позиционная коррекция, что и в верле,
   // но с податливостью 1/spring. Устойчиво при любой жёсткости, при этом связь
-  // реально растягивается пропорционально нагрузке, а lambda даёт настоящую силу.
+  // растягивается пропорционально нагрузке, а lambda даёт настоящую силу.
   _solveLinks(dt) {
     const inv = 1 / (dt * dt)
     for (const l of this.links) {
@@ -222,68 +228,80 @@ export class Physics {
     }
   }
 
-  _solveWorld(withVelocity) {
+  // Позиционная часть контакта: просто выталкиваем из статики
+  _collide() {
     for (const p of this.points) {
       if (p.pinned || !p.collision.world) continue
       for (const c of this.colliders) {
-        if (!c.points.length) continue
-        const bb = c.bbox
-        if (p.x + p.radius < bb.x || p.x - p.radius > bb.x + bb.w) continue
-        if (p.y + p.radius < bb.y || p.y - p.radius > bb.y + bb.h) continue
-        this._resolvePoly(p, c, withVelocity)
+        const ct = this._contact(p, c)
+        if (!ct) continue
+        p.x = ct.qx + ct.nx * p.radius
+        p.y = ct.qy + ct.ny * p.radius
       }
     }
   }
 
-  _resolvePoly(p, c, withVelocity) {
+  // Скоростная часть контакта: упругость по нормали, гладкость по касательной
+  _contactVelocity() {
+    for (const p of this.points) {
+      if (p.pinned || !p.collision.world) continue
+      for (const c of this.colliders) {
+        const ct = this._contact(p, c, 0.5)
+        if (!ct) continue
+        const { nx, ny } = ct
+        const vx = p.x - p.px, vy = p.y - p.py
+        const rest = (p.restitution + c.restitution) * 0.5
+        // гладкость 0 — шершавая поверхность, 1 — лёд
+        const avg = clamp((p.smoothness + c.smoothness) * 0.5, 0, 1)
+        const keep = 0.6 + 0.4 * avg
+        const tx = -ny, ty = nx
+        const vn = vx * nx + vy * ny
+        const vt = vx * tx + vy * ty
+        const nvn = vn < 0 ? -vn * rest : vn
+        const nvt = vt * keep
+        p.px = p.x - (nvn * nx + nvt * tx)
+        p.py = p.y - (nvn * ny + nvt * ty)
+      }
+    }
+  }
+
+  // Ближайшая точка границы и внешняя нормаль, если тело её касается
+  _contact(p, c, slack = 0) {
     const pts = c.points
+    if (!pts.length) return null
+    const bb = c.bbox
+    if (p.x + p.radius < bb.x || p.x - p.radius > bb.x + bb.w) return null
+    if (p.y + p.radius < bb.y || p.y - p.radius > bb.y + bb.h) return null
+
     const closest = (x, y) => {
-      let best = null, bestD = Infinity
+      let q = null, best = Infinity
       for (let i = 0, n = pts.length; i < n; i++) {
         const a = pts[i], b = pts[(i + 1) % n]
-        const q = closestOnSegment(x, y, a[0], a[1], b[0], b[1])
-        const d = Math.hypot(x - q.x, y - q.y)
-        if (d < bestD) { bestD = d; best = q }
+        const s = closestOnSegment(x, y, a[0], a[1], b[0], b[1])
+        const d = Math.hypot(x - s.x, y - s.y)
+        if (d < best) { best = d; q = s }
       }
-      return { q: best, d: bestD }
+      return { q, d: best }
     }
 
     const inside = pointInPoly(p.x, p.y, pts)
-    let { q: best, d: bestD } = closest(p.x, p.y)
-    if (!best) return
-    if (!inside && bestD >= p.radius) return
+    let { q, d } = closest(p.x, p.y)
+    if (!q) return null
+    if (!inside && d >= p.radius + slack) return null
 
     let nx, ny
     if (inside && !pointInPoly(p.px, p.py, pts)) {
       // влетел за один шаг — выталкиваем туда, откуда пришёл
       const prev = closest(p.px, p.py)
-      best = prev.q
-      const dx = p.px - best.x, dy = p.py - best.y
-      const d = Math.hypot(dx, dy) || 1e-9
-      nx = dx / d; ny = dy / d
-    } else if (bestD < 1e-6) { nx = 0; ny = -1 }
+      q = prev.q
+      const dx = p.px - q.x, dy = p.py - q.y
+      const len = Math.hypot(dx, dy) || 1e-9
+      nx = dx / len; ny = dy / len
+    } else if (d < 1e-6) { nx = 0; ny = -1 }
     else {
-      nx = (p.x - best.x) / bestD
-      ny = (p.y - best.y) / bestD
+      nx = (p.x - q.x) / d; ny = (p.y - q.y) / d
       if (inside) { nx = -nx; ny = -ny }
     }
-
-    const vx = p.x - p.px, vy = p.y - p.py
-    p.x = best.x + nx * p.radius
-    p.y = best.y + ny * p.radius
-
-    if (!withVelocity) { p.px = p.x - vx; p.py = p.y - vy; return }
-
-    const rest = (p.restitution + c.restitution) * 0.5
-    // гладкость 0 — шершавая поверхность, 1 — лёд
-    const avg = clamp((p.smoothness + c.smoothness) * 0.5, 0, 1)
-    const keep = 0.78 + 0.22 * avg
-    const tx = -ny, ty = nx
-    const vn = vx * nx + vy * ny
-    const vt = vx * tx + vy * ty
-    const nvn = vn < 0 ? -vn * rest : vn
-    const nvt = vt * keep
-    p.px = p.x - (nvn * nx + nvt * tx)
-    p.py = p.y - (nvn * ny + nvt * ty)
+    return { qx: q.x, qy: q.y, nx, ny }
   }
 }

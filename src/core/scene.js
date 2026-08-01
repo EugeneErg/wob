@@ -8,7 +8,7 @@ export function composeShapes(items) {
   for (const it of items) {
     if (!it.def) continue
     const base = it.def.z || 0
-    const shapes = it.def.shapes(it.data, it.rt ?? null) || []
+    const shapes = it.def.shapes(it.data, it.rt ?? null, it.ctx ?? null) || []
     for (const s of shapes) acc.push({ s, layer: s.layer ?? base, i: acc.length })
   }
   acc.sort((a, b) => a.layer - b.layer || a.i - b.i)
@@ -17,5 +17,21 @@ export function composeShapes(items) {
 
 // Статичное превью уровня (редактор, список уровней): рантайма нет.
 export function shapesForLevel(level) {
-  return composeShapes((level.entities || []).map((e) => ({ def: getEntity(e.type), data: e.data, rt: null })))
+  const items = (level.entities || []).map((e) => ({
+    def: getEntity(e.type),
+    data: e.data,
+    rt: null,
+    // тот же peers(), что и в игре, только без рантайма
+    ctx: {
+      id: e.id,
+      peers: () => (level.entities || [])
+        .filter((o) => o.type === e.type && o.id !== e.id)
+        .map((o) => ({ id: o.id, data: o.data, rt: null })),
+      peer: (id) => {
+        const o = (level.entities || []).find((q) => q.id === id && q.type === e.type)
+        return o ? { id: o.id, data: o.data, rt: null } : null
+      },
+    },
+  }))
+  return composeShapes(items)
 }

@@ -10,6 +10,7 @@
  "goal": 5,
  "entities": [
   {
+   "id": "t1",
    "type": "terrain",
    "data": {
     "points": [
@@ -52,6 +53,7 @@
    }
   },
   {
+   "id": "t2",
    "type": "terrain",
    "data": {
     "points": [
@@ -78,6 +80,7 @@
    }
   },
   {
+   "id": "t3",
    "type": "terrain",
    "data": {
     "points": [
@@ -104,26 +107,37 @@
    }
   },
   {
+   "id": "sb1",
    "type": "system-ball",
    "data": {
     "x": 700,
-    "y": 763,
+    "y": 803,
     "r": 17,
     "static": true,
-    "color": "#d8cbb0"
+    "links": [
+     "sb2"
+    ],
+    "color": "#d8cbb0",
+    "linkColor": "#b9ae95"
    }
   },
   {
+   "id": "sb2",
    "type": "system-ball",
    "data": {
     "x": 790,
-    "y": 763,
+    "y": 803,
     "r": 17,
     "static": true,
-    "color": "#d8cbb0"
+    "links": [
+     "sb1"
+    ],
+    "color": "#d8cbb0",
+    "linkColor": "#b9ae95"
    }
   },
   {
+   "id": "pp1",
    "type": "pipe",
    "data": {
     "points": [
@@ -147,6 +161,7 @@
    }
   },
   {
+   "id": "gb0",
    "type": "game-ball",
    "data": {
     "x": 200,
@@ -157,11 +172,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb1",
    "type": "game-ball",
    "data": {
     "x": 250,
@@ -172,11 +190,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb2",
    "type": "game-ball",
    "data": {
     "x": 300,
@@ -187,11 +208,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb3",
    "type": "game-ball",
    "data": {
     "x": 180,
@@ -202,11 +226,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb4",
    "type": "game-ball",
    "data": {
     "x": 240,
@@ -217,11 +244,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb5",
    "type": "game-ball",
    "data": {
     "x": 300,
@@ -232,11 +262,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb6",
    "type": "game-ball",
    "data": {
     "x": 150,
@@ -247,11 +280,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb7",
    "type": "game-ball",
    "data": {
     "x": 210,
@@ -262,11 +298,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb8",
    "type": "game-ball",
    "data": {
     "x": 270,
@@ -277,11 +316,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb9",
    "type": "game-ball",
    "data": {
     "x": 330,
@@ -292,11 +334,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb10",
    "type": "game-ball",
    "data": {
     "x": 170,
@@ -307,11 +352,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb11",
    "type": "game-ball",
    "data": {
     "x": 230,
@@ -322,11 +370,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb12",
    "type": "game-ball",
    "data": {
     "x": 290,
@@ -337,11 +388,14 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }
   },
   {
+   "id": "gb13",
    "type": "game-ball",
    "data": {
     "x": 350,
@@ -352,6 +406,8 @@
     "maxLinks": 3,
     "range": 165,
     "jump": 470,
+    "speed": 95,
+    "dropMax": 190,
     "color": "#e2704a",
     "linkColor": "#f0b48c"
    }

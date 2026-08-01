@@ -60,6 +60,24 @@ class EntityContext {
 
   neighbors(p) { return p.links.map((l) => (l.a === p ? l.b : l.a)) }
 
+  // Сущности одного типа видят друг друга — это всё ещё «знать только себя».
+  // Чужие типы отсюда недоступны.
+  peers() {
+    return this.world.instances
+      .filter((i) => i.type === this._inst.type && i !== this._inst)
+      .map((i) => ({ id: i.id, data: i.data, rt: i.rt }))
+  }
+  peer(id) {
+    const i = this.world.instances.find((x) => x.id === id && x.type === this._inst.type)
+    return i ? { id: i.id, data: i.data, rt: i.rt } : null
+  }
+
+  // Есть ли в этой точке твёрдая статика — сущности этим щупают землю
+  solidAt(x, y) {
+    for (const c of this.world.physics.colliders) if (pointInPoly(x, y, c.points)) return true
+    return false
+  }
+
   // Кратчайший путь по графу связей до любой точки, удовлетворяющей pred.
   pathFrom(start, pred) {
     if (pred(start)) return [start]

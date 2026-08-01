@@ -39,12 +39,14 @@ export default defineEntity({
 
     if (rt.link) {
       const far = rt.link.a === m ? rt.link.b : rt.link.a
-      if (!far.attachable) { ctx.removeLink(rt.link); rt.link = null; return }
+      // держим только конструкцию: одиночное тело на трубе висеть не должно
+      const alone = !far.pinned && far.links.length <= 1
+      if (!far.attachable || alone) { ctx.removeLink(rt.link); rt.link = null; return }
       // лебёдка: тянем конструкцию к устью со скоростью 60 px/с
       rt.link.rest = Math.max(data.radius * 0.8, rt.link.rest - 60 * dt)
       return
     }
-    const t = ctx.nearest(m, (q) => q.attachable, data.radius * 3.5)
+    const t = ctx.nearest(m, (q) => q.attachable && (q.pinned || q.links.length > 0), data.radius * 3.5)
     if (t) {
       rt.link = ctx.addLink(m, t, {
         visible: false,

@@ -101,6 +101,11 @@
           <input v-else type="text" v-model="inspected.data[f.key]" />
         </div>
       </template>
+      <template v-else-if="bulk">
+        <div class="insp-head"><h3>{{ bulk.def.title }} · {{ bulk.list.length }}</h3></div>
+        <button class="btn small primary wide" @click="runBulk">{{ bulk.def.editor.bulk.label }}</button>
+        <p class="empty">Действие сущности над выделенной группой.</p>
+      </template>
       <template v-else>
         <div class="insp-head"><h3>Уровень</h3></div>
         <p class="empty">Выберите сущность, чтобы менять её свойства. {{ level.entities.length }} сущностей на уровне.</p>
@@ -158,6 +163,20 @@ const inspected = computed(() => {
 })
 const fields = computed(() => inspected.value?.def.editor.props?.() || [])
 
+// одинаковый тип + несколько выделенных + сущность умеет групповое действие
+const bulk = computed(() => {
+  if (ctxInst.value || sel.value.length < 2) return null
+  const list = sel.value.map((id) => find(id)).filter(Boolean)
+  const type = list[0]?.type
+  if (!type || !list.every((e) => e.type === type)) return null
+  const def = getEntity(type)
+  return def?.editor.bulk ? { def, list } : null
+})
+function runBulk() {
+  const b = bulk.value
+  b.def.editor.bulk.apply(b.list.map((e) => ({ id: e.id, data: e.data })))
+}
+
 function withDef(e) {
   if (!e) return null
   return { ...e, def: getEntity(e.type) }
@@ -187,6 +206,7 @@ const handles = computed(() => {
 const hint = computed(() => {
   if (creating.value) return `${creating.value.def.title}: кликайте по холсту. Enter или повторный клик по кнопке — готово, Esc — отмена.`
   if (ctxInst.value) return 'Контекст сущности: рамкой выделяйте вершины, тащите их мышью, Del — удалить, Esc — наружу.'
+  if (bulk.value) return `Выделено ${bulk.value.list.length} шт. — справа доступно групповое действие. Del — удалить.`
   return 'Рамкой выделяйте сущности, тащите — двигайте, клик — войти внутрь, Del — удалить. Alt или средняя кнопка — панорама, колесо — зум.'
 })
 
@@ -214,10 +234,17 @@ function onDown(e) {
     if (hit) {
       if (!hsel.value.includes(hit.id)) hsel.value = [hit.id]
       drag = { kind: 'handles', last: p, moved: 0 }
-    } else {
-      drag = { kind: 'band', start: p, moved: 0 }
-      band.value = { x: p.x, y: p.y, w: 0, h: 0 }
+      return
     }
+    // попали в другую сущность: клик переключит контекст, перетаскивание — подвинет
+    const other = topHit(p)
+    if (other && other.id !== ctxId.value) {
+      sel.value = [other.id]
+      drag = { kind: 'instances', last: p, moved: 0, inst: other }
+      return
+    }
+    drag = { kind: 'band', start: p, moved: 0 }
+    band.value = { x: p.x, y: p.y, w: 0, h: 0 }
     return
   }
 
@@ -349,7 +376,13 @@ function exitContext() {
 }
 
 function removeEntities(ids) {
+  const gone = level.value.entities.filter((e) => ids.includes(e.id))
   level.value.entities = level.value.entities.filter((e) => !ids.includes(e.id))
+  for (const g of gone) {
+    const forget = getEntity(g.type)?.editor.forget
+    if (!forget) continue
+    for (const e of level.value.entities) if (e.type === g.type) forget(e.data, g.id)
+  }
   sel.value = sel.value.filter((id) => !ids.includes(id))
 }
 
@@ -434,6 +467,7 @@ function leave() { save(); emit('back') }
 .insp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .insp-head h3 { margin: 0; font-size: 15px; font-family: var(--font-display); letter-spacing: 0.02em; }
 .empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.wide { width: 100%; margin-bottom: 12px; }
 .badge {
   font-family: var(--font-mono); font-style: normal; font-size: 9px; letter-spacing: 0.1em;
   text-transform: uppercase; color: var(--pipe); border: 1px solid currentColor;
