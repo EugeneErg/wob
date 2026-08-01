@@ -59,6 +59,8 @@ export default defineEntity({
 
     p.attachable = rt.state === 'built' || rt.state === 'pull'
     rt.cd = Math.max(0, rt.cd - dt)
+    // у подъёмной силы есть потолок: у верхней кромки уровня она сходит на нет
+    if (p.lift) p.gravityScale = -clamp((p.y - (ctx.bounds.y + 40)) / 150, -1, 1)
 
     // шар вынимают: он всё ещё держит конструкцию, но его не видно
     if (rt.state === 'pull') {
@@ -109,6 +111,12 @@ export default defineEntity({
     }
 
     const layer = ghost ? LAYERS.overlay : undefined
+    if (data.mass < 0) {
+      out.push({ k: 'circle', layer, x, y, r: r + 5, fill: 'none', stroke: data.color, sw: 1.5, opacity: 0.5 })
+      for (const s of [-1, 1]) {
+        out.push({ k: 'line', layer, x: 0, y: 0, x1: x + s * r * 0.5, y1: y + r * 1.0, x2: x + s * r * 0.25, y2: y + r * 1.7, stroke: data.color, sw: 2, cap: 'round', opacity: 0.55 })
+      }
+    }
     if (st === 'walk' || ghost) {
       out.push({ k: 'circle', layer, x, y, r: r + 4, fill: 'none', stroke: ok ? '#ffd9a0' : '#c0563a', sw: 2, opacity: 0.55 })
     }
@@ -197,7 +205,7 @@ export default defineEntity({
     deleteHandles: () => false,
 
     props: () => [
-      { key: 'mass', label: 'Вес', type: 'range', min: 0.2, max: 6, step: 0.1, global: true },
+      { key: 'mass', label: 'Вес (минус — летает)', type: 'range', min: -4, max: 6, step: 0.1, global: true },
       { key: 'minLinks', label: 'Связей минимум', type: 'number', min: 1, max: 6, step: 1 },
       { key: 'maxLinks', label: 'Связей максимум', type: 'number', min: 1, max: 6, step: 1 },
       { key: 'range', label: 'Дальность связи', type: 'range', min: 60, max: 400, step: 5 },
@@ -216,6 +224,7 @@ export default defineEntity({
 function roam(rt, ctx, dt, data) {
   const p = rt.p
   p.pinned = false
+  if (p.lift) return drift(rt, ctx, dt, data)
   const grounded = Math.abs(p.y - p.py) < 1.2
   const target = ctx.nearest(p, (q) => q !== p && q.attachable && q.links.length > 0)
 
@@ -285,6 +294,34 @@ function roam(rt, ctx, dt, data) {
   const push = go && Math.abs(v) < cap ? go * 1400 * air : 0
   const brake = go === 0 && grounded ? -v * 6 : 0
   ctx.applyAccel(p, push + brake, 0)
+}
+
+// Летающий шар (отрицательный вес): плывёт к конструкции по прямой,
+// прыгать и щупать землю ему незачем, но улететь за уровень он не должен.
+function drift(rt, ctx, dt, data) {
+  const p = rt.p
+  const target = ctx.nearest(p, (q) => q !== p && q.attachable && q.links.length > 0)
+  if (target) {
+    const dx = target.x - p.x, dy = target.y - p.y
+    const d = Math.hypot(dx, dy) || 1e-9
+    rt.look = { x: dx / d, y: dy / d }
+    ctx.applyAccel(p, clamp(dx * 6, -700, 700), clamp(dy * 6, -700, 700))
+    if (d < p.radius + target.radius + 10 && target.links.length) {
+      rt.state = 'walk'
+      rt.walk = { link: target.links[(Math.random() * target.links.length) | 0], from: target, t: 0 }
+      p.pinned = true
+      return
+    }
+  } else {
+    rt.look = { x: rt.dir, y: -1 }
+    ctx.applyAccel(p, rt.dir * 90, 0)
+  }
+  // мягкий потолок и стены уровня
+  const b = ctx.bounds
+  const m = p.radius + 8
+  if (p.y < b.y + m) { const dy = p.y - p.py; p.y = b.y + m; p.py = p.y + Math.max(0, dy) }
+  if (p.x < b.x + m) { ctx.applyAccel(p, (b.x + m - p.x) * 30, 0); rt.dir = 1 }
+  if (p.x > b.x + b.w - m) { ctx.applyAccel(p, (b.x + b.w - m - p.x) * 30, 0); rt.dir = -1 }
 }
 
 // Кандидаты на связь из точки at — только глобальные свойства чужих тел

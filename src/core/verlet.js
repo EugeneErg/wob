@@ -18,12 +18,18 @@ export class Physics {
     this.points = []
     this.links = []
     this.colliders = []
+    this.bodies = []
   }
 
   // ---- точки ---------------------------------------------------------------
   addPoint(o = {}) {
     const x = o.x || 0
     const y = o.y || 0
+    // отрицательный вес — это подъёмная сила: инерция остаётся, гравитация переворачивается
+    let mass = o.mass ?? 1
+    let gravityScale = o.gravityScale ?? 1
+    if (mass < 0) { gravityScale = -gravityScale; mass = -mass }
+    mass = Math.max(mass, 0.05)
     const p = {
       id: nid('p'),
       x, y,
@@ -33,7 +39,8 @@ export class Physics {
       fx: 0, fy: 0,   // сила от связей (пересчитывается каждый подшаг)
       // глобальные свойства
       radius: o.radius ?? 8,
-      mass: o.mass ?? 1,
+      mass,
+      lift: (o.mass ?? 1) < 0,
       restitution: o.restitution ?? 0.2,   // упругость
       smoothness: o.smoothness ?? 0.5,     // гладкость: 1 — лёд, 0 — липучка
       collision: {                         // коллизия
@@ -43,7 +50,7 @@ export class Physics {
       attachable: o.attachable ?? false,   // можно ли прилепить связь
       suction: o.suction ?? 0,             // всасывание
       pinned: !!o.pinned,
-      gravityScale: o.gravityScale ?? 1,
+      gravityScale,
       owner: o.owner || null,              // id инстанса-владельца
       links: [],
       removed: false,
@@ -54,6 +61,7 @@ export class Physics {
 
   removePoint(p) {
     if (!p || p.removed) return
+    for (const b of this.bodies) if (b.verts.includes(p)) this.detachFromBody(b, [p])
     for (const l of [...p.links]) this.removeLink(l)
     p.removed = true
     const i = this.points.indexOf(p)
@@ -91,16 +99,91 @@ export class Physics {
     const i = this.links.indexOf(l); if (i >= 0) this.links.splice(i, 1)
   }
 
+  // ---- жёсткая форма (вращается) -------------------------------------------
+  // Подгонка формы: каждый подшаг ищем оптимальные поворот и сдвиг исходной
+  // формы и подтягиваем к ним вершины. Даёт настоящее твёрдое тело с вращением,
+  // не засоряя граф связей.
+  addBody(o = {}) {
+    const verts = [...(o.points || [])]  // своя копия: тело может дорастать
+    let cx = 0, cy = 0, m = 0
+    for (const p of verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
+    if (m) { cx /= m; cy /= m }
+    const b = {
+      id: nid('b'),
+      verts,
+      rest: verts.map((p) => ({ x: p.x - cx, y: p.y - cy })),
+      stiffness: clamp(o.stiffness ?? 1, 0, 1),
+      removed: false,
+    }
+    this.bodies.push(b)
+    return b
+  }
+
+  // Прирастить точки к телу: их текущее расположение становится частью формы
+  attachToBody(b, points) {
+    if (!b || !points.length) return
+    for (const p of points) if (!b.verts.includes(p)) { b.verts.push(p); p.pinned = false }
+    let cx = 0, cy = 0, m = 0
+    for (const p of b.verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
+    if (!m) return
+    cx /= m; cy /= m
+    b.rest = b.verts.map((p) => ({ x: p.x - cx, y: p.y - cy }))
+  }
+
+  detachFromBody(b, points) {
+    if (!b) return
+    const keep = b.verts.map((p, i) => [p, b.rest[i]]).filter(([p]) => !points.includes(p))
+    b.verts = keep.map((x) => x[0])
+    b.rest = keep.map((x) => x[1])
+  }
+
+  removeBody(b) {
+    if (!b) return
+    b.removed = true
+    const i = this.bodies.indexOf(b); if (i >= 0) this.bodies.splice(i, 1)
+  }
+
+  _solveBodies() {
+    for (const b of this.bodies) {
+      const n = b.verts.length
+      if (n < 2) continue
+      let cx = 0, cy = 0, m = 0
+      for (const p of b.verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
+      if (!m) continue
+      cx /= m; cy /= m
+      let num = 0, den = 0
+      for (let i = 0; i < n; i++) {
+        const q = b.rest[i], p = b.verts[i]
+        const dx = p.x - cx, dy = p.y - cy
+        num += q.x * dy - q.y * dx
+        den += q.x * dx + q.y * dy
+      }
+      const th = Math.atan2(num, den)
+      const co = Math.cos(th), si = Math.sin(th)
+      for (let i = 0; i < n; i++) {
+        const p = b.verts[i]
+        if (p.pinned) continue
+        const q = b.rest[i]
+        const gx = cx + q.x * co - q.y * si
+        const gy = cy + q.x * si + q.y * co
+        p.x += (gx - p.x) * b.stiffness
+        p.y += (gy - p.y) * b.stiffness
+      }
+    }
+  }
+
   // ---- статическая геометрия ----------------------------------------------
   addCollider(o = {}) {
     const c = {
       id: nid('c'),
-      points: o.points || [],
+      verts: o.verts ? [...o.verts] : null,        // если заданы — геометрия живая
+      points: o.verts ? o.verts.map((p) => [p.x, p.y]) : (o.points || []),
       smoothness: o.smoothness ?? 0.5,
       restitution: o.restitution ?? 0.1,
       owner: o.owner || null,
       removed: false,
     }
+    c.dynamic = !!c.verts
     c.bbox = bboxOfPoints(c.points)
     this.colliders.push(c)
     return c
@@ -143,7 +226,9 @@ export class Physics {
     for (const l of this.links) l.lambda = 0
     for (let i = 0; i < this.iterations; i++) {
       this._solveLinks(dt)
+      this._solveBodies()
       this._solvePairs()
+      this._syncColliders()
       this._collide()
     }
 
@@ -228,15 +313,43 @@ export class Physics {
     }
   }
 
-  // Позиционная часть контакта: просто выталкиваем из статики
+  _syncColliders() {
+    for (const c of this.colliders) {
+      if (!c.dynamic) continue
+      for (let i = 0; i < c.verts.length; i++) {
+        c.points[i][0] = c.verts[i].x
+        c.points[i][1] = c.verts[i].y
+      }
+      c.bbox = bboxOfPoints(c.points)
+    }
+  }
+
+  // Позиционная часть контакта. Со статикой просто выталкиваем,
+  // с живым телом делим поправку по обратным массам — тело получает отдачу.
   _collide() {
     for (const p of this.points) {
       if (p.pinned || !p.collision.world) continue
       for (const c of this.colliders) {
+        if (c.owner && c.owner === p.owner) continue // сам себя не толкает
         const ct = this._contact(p, c)
         if (!ct) continue
-        p.x = ct.qx + ct.nx * p.radius
-        p.y = ct.qy + ct.ny * p.radius
+        if (!c.dynamic) {
+          p.x = ct.qx + ct.nx * p.radius
+          p.y = ct.qy + ct.ny * p.radius
+          continue
+        }
+        const a = c.verts[ct.i], b = c.verts[(ct.i + 1) % c.verts.length]
+        const t = ct.t
+        const wp = 1 / p.mass
+        const wa = a.pinned ? 0 : 1 / a.mass
+        const wb = b.pinned ? 0 : 1 / b.mass
+        const we = (1 - t) * (1 - t) * wa + t * t * wb
+        const sum = wp + we
+        if (!sum) continue
+        const d = ct.depth
+        p.x += ct.nx * d * (wp / sum); p.y += ct.ny * d * (wp / sum)
+        if (wa) { a.x -= ct.nx * d * ((1 - t) * wa) / sum; a.y -= ct.ny * d * ((1 - t) * wa) / sum }
+        if (wb) { b.x -= ct.nx * d * (t * wb) / sum; b.y -= ct.ny * d * (t * wb) / sum }
       }
     }
   }
@@ -246,10 +359,17 @@ export class Physics {
     for (const p of this.points) {
       if (p.pinned || !p.collision.world) continue
       for (const c of this.colliders) {
+        if (c.owner && c.owner === p.owner) continue
         const ct = this._contact(p, c, 0.5)
         if (!ct) continue
         const { nx, ny } = ct
-        const vx = p.x - p.px, vy = p.y - p.py
+        let sx = 0, sy = 0
+        if (c.dynamic) { // скорость самой поверхности в точке касания
+          const a = c.verts[ct.i], b = c.verts[(ct.i + 1) % c.verts.length]
+          sx = (a.x - a.px) * (1 - ct.t) + (b.x - b.px) * ct.t
+          sy = (a.y - a.py) * (1 - ct.t) + (b.y - b.py) * ct.t
+        }
+        const vx = p.x - p.px - sx, vy = p.y - p.py - sy
         const rest = (p.restitution + c.restitution) * 0.5
         // гладкость 0 — шершавая поверхность, 1 — лёд
         const avg = clamp((p.smoothness + c.smoothness) * 0.5, 0, 1)
@@ -259,8 +379,8 @@ export class Physics {
         const vt = vx * tx + vy * ty
         const nvn = vn < 0 ? -vn * rest : vn
         const nvt = vt * keep
-        p.px = p.x - (nvn * nx + nvt * tx)
-        p.py = p.y - (nvn * ny + nvt * ty)
+        p.px = p.x - (nvn * nx + nvt * tx + sx)
+        p.py = p.y - (nvn * ny + nvt * ty + sy)
       }
     }
   }
@@ -274,18 +394,18 @@ export class Physics {
     if (p.y + p.radius < bb.y || p.y - p.radius > bb.y + bb.h) return null
 
     const closest = (x, y) => {
-      let q = null, best = Infinity
+      let q = null, best = Infinity, edge = 0, t = 0
       for (let i = 0, n = pts.length; i < n; i++) {
         const a = pts[i], b = pts[(i + 1) % n]
         const s = closestOnSegment(x, y, a[0], a[1], b[0], b[1])
         const d = Math.hypot(x - s.x, y - s.y)
-        if (d < best) { best = d; q = s }
+        if (d < best) { best = d; q = s; edge = i; t = s.t }
       }
-      return { q, d: best }
+      return { q, d: best, edge, t }
     }
 
     const inside = pointInPoly(p.x, p.y, pts)
-    let { q, d } = closest(p.x, p.y)
+    let { q, d, edge, t } = closest(p.x, p.y)
     if (!q) return null
     if (!inside && d >= p.radius + slack) return null
 
@@ -293,7 +413,7 @@ export class Physics {
     if (inside && !pointInPoly(p.px, p.py, pts)) {
       // влетел за один шаг — выталкиваем туда, откуда пришёл
       const prev = closest(p.px, p.py)
-      q = prev.q
+      q = prev.q; edge = prev.edge; t = prev.t
       const dx = p.px - q.x, dy = p.py - q.y
       const len = Math.hypot(dx, dy) || 1e-9
       nx = dx / len; ny = dy / len
@@ -302,6 +422,7 @@ export class Physics {
       nx = (p.x - q.x) / d; ny = (p.y - q.y) / d
       if (inside) { nx = -nx; ny = -ny }
     }
-    return { qx: q.x, qy: q.y, nx, ny }
+    const depth = inside ? p.radius + d : p.radius - d
+    return { qx: q.x, qy: q.y, nx, ny, depth, i: edge, t }
   }
 }

@@ -26,10 +26,11 @@ export default defineEntity({
     return { c }
   },
 
-  shapes(data) {
-    if (data.points.length < 2) return []
+  shapes(data, rt) {
+    const pts = rt?.c ? rt.c.points : data.points
+    if (pts.length < 2) return []
     return [
-      { k: 'poly', pts: data.points, closed: true, fill: data.fill, stroke: data.edge, sw: 4, join: 'round' },
+      { k: 'poly', pts, closed: true, fill: data.fill, stroke: data.edge, sw: 4, join: 'round' },
     ]
   },
 

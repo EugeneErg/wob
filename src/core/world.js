@@ -1,6 +1,6 @@
 import { Physics } from './verlet.js'
 import { getEntity } from './registry.js'
-import { closestOnSegment, pointInPoly } from './geom.js'
+import { closestOnSegment, pointInPoly, bboxOfPoints } from './geom.js'
 import { composeShapes } from './scene.js'
 
 let UID = 1
@@ -17,6 +17,7 @@ class EntityContext {
     this._points = []
     this._links = []
     this._colliders = []
+    this._bodies = []
   }
 
   get gravity() { return this.world.physics.gravity }
@@ -40,6 +41,12 @@ class EntityContext {
     const c = this.world.physics.addCollider({ ...o, owner: this.id })
     this._colliders.push(c)
     return c
+  }
+  // Жёсткая форма: вершины держат взаимное расположение и вращаются как одно целое
+  addBody(o) {
+    const b = this.world.physics.addBody(o)
+    this._bodies.push(b)
+    return b
   }
   removePoint(p) { this.world.physics.removePoint(p) }
   removeLink(l) { this.world.physics.removeLink(l) }
@@ -130,11 +137,65 @@ class EntityContext {
   despawnSelf() { this.world.despawn(this._inst) }
 
   destroy() {
+    for (const b of this._bodies) this.world.physics.removeBody(b)
     for (const l of this._links) this.world.physics.removeLink(l)
     for (const p of this._points) this.world.physics.removePoint(p)
     for (const c of this._colliders) this.world.physics.removeCollider(c)
-    this._links = []; this._points = []; this._colliders = []
+    this._links = []; this._points = []; this._colliders = []; this._bodies = []
   }
+}
+
+// набор опорных координат сущности: точки + вершины её коллайдеров
+function frameOf(inst) {
+  const out = []
+  for (const p of inst.ctx._points) out.push(p.x, p.y)
+  for (const c of inst.ctx._colliders) for (const q of c.points) out.push(q[0], q[1])
+  return out
+}
+
+// оптимальные поворот и сдвиг между двумя наборами координат
+function transformOf(prev, cur) {
+  const n = prev.length / 2
+  if (!n || prev.length !== cur.length) return null
+  let ax = 0, ay = 0, bx = 0, by = 0
+  for (let i = 0; i < n; i++) { ax += prev[i * 2]; ay += prev[i * 2 + 1]; bx += cur[i * 2]; by += cur[i * 2 + 1] }
+  ax /= n; ay /= n; bx /= n; by /= n
+  let num = 0, den = 0
+  for (let i = 0; i < n; i++) {
+    const px = prev[i * 2] - ax, py = prev[i * 2 + 1] - ay
+    const qx = cur[i * 2] - bx, qy = cur[i * 2 + 1] - by
+    num += px * qy - py * qx
+    den += px * qx + py * qy
+  }
+  const th = n > 1 ? Math.atan2(num, den) : 0
+  if (Math.abs(bx - ax) < 1e-9 && Math.abs(by - ay) < 1e-9 && Math.abs(th) < 1e-9) return null
+  return { ax, ay, bx, by, co: Math.cos(th), si: Math.sin(th) }
+}
+
+function applyTransform(inst, t) {
+  const carryPoints = !inst.bound
+  const map = (x, y) => {
+    const dx = x - t.ax, dy = y - t.ay
+    return [t.bx + dx * t.co - dy * t.si, t.by + dx * t.si + dy * t.co]
+  }
+  if (carryPoints) {
+    for (const p of inst.ctx._points) {
+      const [x, y] = map(p.x, p.y)
+      const [rx, ry] = map(p.px, p.py)
+      p.x = x; p.y = y; p.px = rx; p.py = ry
+    }
+  }
+  for (const c of inst.ctx._colliders) {
+    if (c.dynamic) continue // живая геометрия и так следует за своими точками
+    for (const q of c.points) { const [x, y] = map(q[0], q[1]); q[0] = x; q[1] = y }
+    c.bbox = bboxOfPoints(c.points)
+  }
+}
+
+function depth(inst, world, guard = 0) {
+  if (!inst.parent || guard > 32) return 0
+  const p = world.instances.find((i) => i.id === inst.parent)
+  return p ? 1 + depth(p, world, guard + 1) : 0
 }
 
 export class World {
@@ -146,7 +207,7 @@ export class World {
     this.time = 0
     this._listeners = {}
     this._drag = null
-    for (const e of level.entities || []) this.spawn(e.type, e.data, e.id)
+    for (const e of level.entities || []) this.spawn(e.type, e.data, e.id, e.parent)
   }
 
   on(name, fn) {
@@ -155,22 +216,28 @@ export class World {
   }
   emit(name, payload) { for (const fn of this._listeners[name] || []) fn(payload) }
 
-  spawn(type, data, id) {
+  spawn(type, data, id, parent = null) {
     const def = getEntity(type)
     if (!def) { console.warn('Неизвестная сущность:', type); return null }
     const inst = {
       id: id || newId(type + '-'),
-      type, def,
+      type, def, parent,
       data: structuredClone(data ?? def.defaults()),
       rt: null,
     }
     inst.ctx = new EntityContext(this, inst)
     inst.rt = (def.spawn ? def.spawn(inst.ctx, inst.data) : null) || {}
+    inst.frame = frameOf(inst)
     this.instances.push(inst)
+    this._bind(inst)
+    // дети, созданные раньше родителя, прирастают только сейчас
+    for (const child of this.instances) if (child.parent === inst.id && !child.bound) this._bind(child)
     return inst
   }
 
   despawn(inst) {
+    this._unbind(inst)
+    for (const child of this.instances) if (child.parent === inst.id) { this._unbind(child); child.parent = null }
     inst.ctx.destroy()
     const i = this.instances.indexOf(inst)
     if (i >= 0) this.instances.splice(i, 1)
@@ -184,6 +251,45 @@ export class World {
       inst.def.update?.(inst.rt, inst.ctx, dt, inst.data)
     }
     this.physics.step(dt)
+    this._carry()
+  }
+
+  // Дочерние сущности едут вместе с родительскими: берём сдвиг и поворот
+  // родителя за кадр и применяем к геометрии ребёнка. Мир при этом не знает,
+  // что за сущности он таскает — только их точки и коллайдеры.
+  _carry() {
+    const order = [...this.instances].sort((a, b) => depth(a, this) - depth(b, this))
+    const deltas = new Map()
+    for (const inst of order) {
+      const t = inst.parent ? deltas.get(inst.parent) : null
+      if (t) applyTransform(inst, t)
+      // полное перемещение за кадр = собственное плюс унаследованное
+      deltas.set(inst.id, transformOf(inst.frame, frameOf(inst)))
+      inst.frame = frameOf(inst)
+    }
+  }
+
+  // Сращивание с родителем. Если у родителя есть жёсткое тело, точки ребёнка
+  // прирастают к нему: тогда усилие идёт в обе стороны — потянув за ребёнка,
+  // можно поднять родителя. Если тела нет, ребёнка просто возит _carry().
+  _bind(inst) {
+    if (!inst.parent) return
+    const parent = this.instances.find((i) => i.id === inst.parent)
+    const body = parent?.ctx._bodies[0]
+    if (!body || !inst.ctx._points.length) return
+    this.physics.attachToBody(body, inst.ctx._points)
+    inst.bound = body
+  }
+
+  _unbind(inst) {
+    if (inst.bound) { this.physics.detachFromBody(inst.bound, inst.ctx._points); inst.bound = null }
+  }
+
+  setParent(inst, parentId) {
+    this._unbind(inst)
+    inst.parent = parentId || null
+    inst.frame = frameOf(inst)
+    this._bind(inst)
   }
 
   scene() {

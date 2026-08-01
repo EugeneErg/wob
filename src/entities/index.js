@@ -2,6 +2,7 @@
 // В будущем этот файл заменится загрузкой модулей с сервера — контракт тот же.
 
 import './terrain/index.js'
+import './object/index.js'
 import './system-ball/index.js'
 import './game-ball/index.js'
 import './pipe/index.js'

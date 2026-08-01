@@ -50,6 +50,16 @@
 
           <SvgScene :shapes="sceneShapes" />
 
+          <!-- кто к кому привязан -->
+          <g>
+            <line
+              v-for="l in parentLines" :key="l.id"
+              :x1="l.x1" :y1="l.y1" :x2="l.x2" :y2="l.y2"
+              stroke="#6fc0ea" stroke-width="2" stroke-dasharray="3 7" opacity="0.75"
+            />
+            <circle v-for="l in parentLines" :key="l.id + 'd'" :cx="l.x2" :cy="l.y2" r="5" fill="#6fc0ea" opacity="0.75" />
+          </g>
+
           <!-- выделенные сущности -->
           <rect
             v-for="b in selBoxes" :key="b.id"
@@ -102,12 +112,21 @@
           <input v-else type="text" v-model="inspected.data[f.key]" />
         </div>
       </template>
-      <template v-else-if="bulk">
+      <template v-if="bulk">
         <div class="insp-head"><h3>{{ bulk.def.title }} · {{ bulk.list.length }}</h3></div>
         <button class="btn small primary wide" @click="runBulk">{{ bulk.def.editor.bulk.label }}</button>
-        <p class="empty">Действие сущности над выделенной группой.</p>
       </template>
-      <template v-else>
+
+      <template v-if="parentBox">
+        <div class="insp-head"><h3>Привязка</h3></div>
+        <p v-if="parentBox.of" class="tip">Едет вместе с: {{ parentBox.of }}</p>
+        <button v-if="parentBox.canBind" class="btn small wide" @click="bindParent">
+          Привязать к «{{ parentBox.target }}»
+        </button>
+        <button v-if="parentBox.canFree" class="btn ghost small wide" @click="freeParent">Отвязать</button>
+      </template>
+
+      <template v-if="!inspected && !bulk && !parentBox">
         <div class="insp-head"><h3>Уровень</h3></div>
         <p class="empty">Выберите сущность, чтобы менять её свойства. {{ level.entities.length }} сущностей на уровне.</p>
       </template>
@@ -179,6 +198,57 @@ const soloBulk = computed(() => {
   if (!def?.editor.bulk || bulk.value) return null
   return `«${def.editor.bulk.label}» — выделите несколько (Shift+клик)`
 })
+// Привязка — отношение уровня, а не сущности: мир возит ребёнка за родителем
+// и сращивает его с телом родителя, если оно есть.
+const parentBox = computed(() => {
+  if (ctxInst.value) return null
+  const list = sel.value.map((id) => find(id)).filter(Boolean)
+  if (!list.length) return null
+  const of = list.length === 1 && list[0].parent ? getEntity(find(list[0].parent)?.type)?.title : null
+  if (list.length < 2) return of ? { of, canFree: true, canBind: false } : null
+  const target = list[list.length - 1]
+  return {
+    of: null,
+    target: getEntity(target.type)?.title || target.type,
+    canBind: true,
+    canFree: list.some((e) => e.parent),
+  }
+})
+
+function descendant(id, ofId, guard = 0) {
+  if (id === ofId) return true
+  if (guard > 32) return false
+  const e = find(id)
+  return e?.parent ? descendant(e.parent, ofId, guard + 1) : false
+}
+
+function bindParent() {
+  const list = sel.value.map((id) => find(id)).filter(Boolean)
+  const target = list[list.length - 1]
+  for (const e of list) {
+    if (e === target) continue
+    if (descendant(target.id, e.id)) continue // без циклов
+    e.parent = target.id
+  }
+}
+function freeParent() {
+  for (const id of sel.value) { const e = find(id); if (e) delete e.parent }
+}
+
+const parentLines = computed(() => {
+  const out = []
+  for (const e of level.value.entities) {
+    if (!e.parent) continue
+    const p = find(e.parent)
+    if (!p) continue
+    const a = getEntity(e.type)?.editor.bounds?.(e.data)
+    const b = getEntity(p.type)?.editor.bounds?.(p.data)
+    if (!a || !b) continue
+    out.push({ id: e.id, x1: a.x + a.w / 2, y1: a.y + a.h / 2, x2: b.x + b.w / 2, y2: b.y + b.h / 2 })
+  }
+  return out
+})
+
 function runBulk() {
   const b = bulk.value
   b.def.editor.bulk.apply(b.list.map((e) => ({ id: e.id, data: e.data })))
@@ -214,6 +284,7 @@ const hint = computed(() => {
   if (creating.value) return `${creating.value.def.title}: кликайте по холсту. Enter или повторный клик по кнопке — готово, Esc — отмена.`
   if (ctxInst.value) return 'Контекст сущности: рамкой выделяйте вершины, тащите их мышью, Del — удалить, клик по пустому месту или Esc — наружу.'
   if (bulk.value) return `Выделено ${bulk.value.list.length} шт. — справа кнопка «${bulk.value.def.editor.bulk.label}». Del — удалить.`
+  if (parentBox.value?.canBind) return `Родителем станет последняя выделенная — «${parentBox.value.target}». Набирайте порядок Shift+кликом.`
   return 'Рамкой или Shift+кликом выделяйте сущности, тащите — двигайте, клик — войти внутрь, Del — удалить. Alt или средняя кнопка — панорама, колесо — зум.'
 })
 
@@ -402,6 +473,7 @@ function removeEntities(ids) {
     if (!forget) continue
     for (const e of level.value.entities) if (e.type === g.type) forget(e.data, g.id)
   }
+  for (const e of level.value.entities) if (ids.includes(e.parent)) delete e.parent
   sel.value = sel.value.filter((id) => !ids.includes(id))
 }
 
