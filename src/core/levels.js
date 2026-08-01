@@ -1,7 +1,7 @@
 import tower from '../levels/tower.json'
 import bridge from '../levels/bridge.json'
 
-const KEY = 'goo.levels.v1'
+const KEY = 'goo.levels.v2'
 const BUILTIN = [tower, bridge]
 
 function read() {

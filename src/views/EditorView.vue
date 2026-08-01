@@ -86,6 +86,7 @@
           <h3>{{ inspected.def.title }}</h3>
           <button v-if="ctxInst" class="btn ghost small" @click="exitContext">Выйти</button>
         </div>
+        <p v-if="soloBulk" class="tip">{{ soloBulk }}</p>
         <div v-for="f in fields" :key="f.key" class="field">
           <span class="lab">
             {{ f.label }}
@@ -172,6 +173,12 @@ const bulk = computed(() => {
   const def = getEntity(type)
   return def?.editor.bulk ? { def, list } : null
 })
+// подсказка на карточке одиночной сущности, у которой есть групповое действие
+const soloBulk = computed(() => {
+  const def = inspected.value?.def
+  if (!def?.editor.bulk || bulk.value) return null
+  return `«${def.editor.bulk.label}» — выделите несколько (Shift+клик)`
+})
 function runBulk() {
   const b = bulk.value
   b.def.editor.bulk.apply(b.list.map((e) => ({ id: e.id, data: e.data })))
@@ -205,9 +212,9 @@ const handles = computed(() => {
 
 const hint = computed(() => {
   if (creating.value) return `${creating.value.def.title}: кликайте по холсту. Enter или повторный клик по кнопке — готово, Esc — отмена.`
-  if (ctxInst.value) return 'Контекст сущности: рамкой выделяйте вершины, тащите их мышью, Del — удалить, Esc — наружу.'
-  if (bulk.value) return `Выделено ${bulk.value.list.length} шт. — справа доступно групповое действие. Del — удалить.`
-  return 'Рамкой выделяйте сущности, тащите — двигайте, клик — войти внутрь, Del — удалить. Alt или средняя кнопка — панорама, колесо — зум.'
+  if (ctxInst.value) return 'Контекст сущности: рамкой выделяйте вершины, тащите их мышью, Del — удалить, клик по пустому месту или Esc — наружу.'
+  if (bulk.value) return `Выделено ${bulk.value.list.length} шт. — справа кнопка «${bulk.value.def.editor.bulk.label}». Del — удалить.`
+  return 'Рамкой или Shift+кликом выделяйте сущности, тащите — двигайте, клик — войти внутрь, Del — удалить. Alt или средняя кнопка — панорама, колесо — зум.'
 })
 
 // --- ввод ------------------------------------------------------------------
@@ -221,6 +228,18 @@ function onDown(e) {
   if (e.button !== 0) return
   svg.value.setPointerCapture?.(e.pointerId)
   const p = toWorld(e)
+
+  // Shift+клик набирает группу и не уводит в контекст
+  if (e.shiftKey && !creating.value) {
+    const hit = topHit(p)
+    if (hit) {
+      exitContext()
+      sel.value = sel.value.includes(hit.id)
+        ? sel.value.filter((id) => id !== hit.id)
+        : [...sel.value, hit.id]
+      return
+    }
+  }
 
   if (creating.value) {
     const r = creating.value.def.editor.create.click?.(creating.value.draft, p)
@@ -309,7 +328,7 @@ function onUp() {
         const b = def?.editor.bounds?.(e.data)
         return b && rectsIntersect(b, r)
       }).map((e) => e.id)
-    } else if (ctxInst.value) hsel.value = []
+    } else if (ctxInst.value) exitContext()
     return
   }
   if (d.kind === 'instances' && d.moved < 4 && d.inst) enterContext(d.inst.id)
@@ -468,6 +487,11 @@ function leave() { save(); emit('back') }
 .insp-head h3 { margin: 0; font-size: 15px; font-family: var(--font-display); letter-spacing: 0.02em; }
 .empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
 .wide { width: 100%; margin-bottom: 12px; }
+.tip {
+  margin: 0 0 14px; padding: 8px 10px; border-radius: 8px;
+  background: rgba(111, 192, 234, 0.08); border: 1px solid rgba(111, 192, 234, 0.25);
+  color: var(--muted); font-size: 12px; line-height: 1.5;
+}
 .badge {
   font-family: var(--font-mono); font-style: normal; font-size: 9px; letter-spacing: 0.1em;
   text-transform: uppercase; color: var(--pipe); border: 1px solid currentColor;

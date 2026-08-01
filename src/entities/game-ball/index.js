@@ -264,13 +264,18 @@ function roam(rt, ctx, dt, data) {
     }
   }
 
-  // стена или конструкция над головой — подпрыгиваем
-  const above = target ? target.y - p.y : 0
-  const near = target ? Math.abs(target.x - p.x) < 170 : false
-  if (grounded && rt.cd === 0 && (wall || (above < -(p.radius + 40) && near))) {
-    p.py = p.y + (data.jump ?? 470) / 120
-    rt.cd = 0.45 + Math.random() * 0.35
-    if (wall && !target) rt.dir = -rt.dir
+  // Прыгаем только ради цели: без конструкции у стены просто разворачиваемся.
+  if (wall && grounded && !target) rt.dir = -rt.dir
+  if (target && grounded && rt.cd === 0) {
+    const dx = target.x - p.x
+    const above = target.y - p.y
+    const reached = Math.hypot(dx, above) <= p.radius + target.radius + 10
+    // цель выше и до неё не дотянуться — пробуем допрыгнуть, даже если не выйдет
+    const under = Math.abs(dx) < Math.max(150, p.radius + target.radius + 70)
+    if (!reached && ((above < -20 && under) || wall)) {
+      p.py = p.y + (data.jump ?? 470) / 120
+      rt.cd = 0.45 + Math.random() * 0.35
+    }
   }
 
   // ход: в воздухе управляем слабее, скорость ограничена
