@@ -20,7 +20,7 @@ export const GLOBAL_KEYS = Object.keys(GLOBAL_PROPS)
 export const LAYERS = {
   background: -60,
   ground: -20,
-  device: 0,      // трубы и механизмы — за конструкцией
+  midground: 0,   // между рельефом и конструкцией
   structure: 5,   // связи — всегда под телами
   body: 20,
   overlay: 70,    // то, что игрок тащит

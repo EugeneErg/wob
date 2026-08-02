@@ -1,4 +1,44 @@
 import { getEntity } from './registry.js'
+import { EntityContext, CONTEXT_MUTATORS } from './world.js'
+
+// В редакторе рантайма нет, но shapes() получает контекст той же формы:
+// читающие методы возвращают пустоту, меняющие мир — честно ругаются.
+// tests/contract.mjs следит, чтобы этот список не отстал от EntityContext.
+export function readOnlyContext(level, entity) {
+  const ctx = {
+    id: entity.id,
+    gravity: level.gravity || { x: 0, y: 0 },
+    time: 0,
+    bounds: { x: 0, y: 0, w: level.width || 0, h: level.height || 0 },
+    pointer: null,
+    points: [],
+    links: [],
+    query: () => [],
+    nearest: () => null,
+    neighbors: () => [],
+    solidAt: () => false,
+    pathFrom: () => null,
+    isBlocked: () => false,
+    closestOnLinks: () => null,
+    peers: () => (level.entities || [])
+      .filter((o) => o.type === entity.type && o.id !== entity.id)
+      .map((o) => ({ id: o.id, data: o.data, rt: null })),
+    peer: (id) => {
+      const o = (level.entities || []).find((q) => q.id === id && q.type === entity.type)
+      return o ? { id: o.id, data: o.data, rt: null } : null
+    },
+  }
+  for (const m of CONTEXT_MUTATORS) {
+    ctx[m] = () => { throw new Error(`ctx.${m}() недоступен в редакторе: shapes() должна быть чистой`) }
+  }
+  return ctx
+}
+
+// имена, которые обязан покрывать заглушечный контекст
+export const contextSurface = () => {
+  const proto = EntityContext.prototype
+  return Object.getOwnPropertyNames(proto).filter((k) => k !== 'constructor' && k !== 'owned')
+}
 
 // Собирает фигуры со всех сущностей и раскладывает по слоям.
 // Слой берётся из самой фигуры (s.layer), иначе — из z сущности.
@@ -21,17 +61,7 @@ export function shapesForLevel(level) {
     def: getEntity(e.type),
     data: e.data,
     rt: null,
-    // тот же peers(), что и в игре, только без рантайма
-    ctx: {
-      id: e.id,
-      peers: () => (level.entities || [])
-        .filter((o) => o.type === e.type && o.id !== e.id)
-        .map((o) => ({ id: o.id, data: o.data, rt: null })),
-      peer: (id) => {
-        const o = (level.entities || []).find((q) => q.id === id && q.type === e.type)
-        return o ? { id: o.id, data: o.data, rt: null } : null
-      },
-    },
+    ctx: readOnlyContext(level, e),
   }))
   return composeShapes(items)
 }

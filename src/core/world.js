@@ -6,10 +6,17 @@ import { composeShapes } from './scene.js'
 let UID = 1
 export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toString(36).slice(2, 6)}`
 
+// Всё, что меняет мир: в редакторе этого нет, отрисовка обязана быть чистой.
+export const CONTEXT_MUTATORS = [
+  'addPoint', 'addLink', 'addCollider', 'addBody',
+  'removePoint', 'removeLink', 'applyAccel', 'setMass',
+  'emit', 'despawnSelf', 'destroy',
+]
+
 // Фасад мира для сущности. Сущность видит только глобальные свойства чужих тел:
 // radius / mass / restitution / smoothness / collision / attachable / suction.
 // Тип и данные чужой сущности отсюда недоступны.
-class EntityContext {
+export class EntityContext {
   constructor(world, inst) {
     this.world = world
     this.id = inst.id
@@ -140,6 +147,10 @@ class EntityContext {
   emit(name, payload) { this.world.emit(name, { ...payload, from: this.id }) }
   despawnSelf() { this.world.despawn(this._inst) }
 
+  // Что сущность создала. Мир пользуется этим сам (перенос, сборки, уборка),
+  // сущностям поле не нужно.
+  get owned() { return { points: this._points, links: this._links, colliders: this._colliders, bodies: this._bodies } }
+
   destroy() {
     for (const b of this._bodies) this.world.physics.removeBody(b)
     for (const l of this._links) this.world.physics.removeLink(l)
@@ -152,8 +163,8 @@ class EntityContext {
 // набор опорных координат сущности: точки + вершины её коллайдеров
 function frameOf(inst) {
   const out = []
-  for (const p of inst.ctx._points) out.push(p.x, p.y)
-  for (const c of inst.ctx._colliders) for (const q of c.points) out.push(q[0], q[1])
+  for (const p of inst.ctx.owned.points) out.push(p.x, p.y)
+  for (const c of inst.ctx.owned.colliders) for (const q of c.points) out.push(q[0], q[1])
   return out
 }
 
@@ -183,13 +194,13 @@ function applyTransform(inst, t) {
     return [t.bx + dx * t.co - dy * t.si, t.by + dx * t.si + dy * t.co]
   }
   if (carryPoints) {
-    for (const p of inst.ctx._points) {
+    for (const p of inst.ctx.owned.points) {
       const [x, y] = map(p.x, p.y)
       const [rx, ry] = map(p.px, p.py)
       p.x = x; p.y = y; p.px = rx; p.py = ry
     }
   }
-  for (const c of inst.ctx._colliders) {
+  for (const c of inst.ctx.owned.colliders) {
     if (c.dynamic) continue // живая геометрия и так следует за своими точками
     for (const q of c.points) { const [x, y] = map(q[0], q[1]); q[0] = x; q[1] = y }
     c.bbox = bboxOfPoints(c.points)
@@ -287,24 +298,24 @@ export class World {
       root = up
     }
     const g = root.id
-    for (const p of inst.ctx._points) p.group = g
-    for (const c of inst.ctx._colliders) c.group = g
+    for (const p of inst.ctx.owned.points) p.group = g
+    for (const c of inst.ctx.owned.colliders) c.group = g
   }
 
   _bind(inst) {
     this._regroup(inst)
     if (!inst.parent) return
     const parent = this.instances.find((i) => i.id === inst.parent)
-    const body = parent?.ctx._bodies[0]
-    if (!body || !inst.ctx._points.length) return
-    this.physics.attachToBody(body, inst.ctx._points)
+    const body = parent?.ctx.owned.bodies[0]
+    if (!body || !inst.ctx.owned.points.length) return
+    this.physics.attachToBody(body, inst.ctx.owned.points)
     inst.bound = body
   }
 
   _unbind(inst) {
-    if (inst.bound) { this.physics.detachFromBody(inst.bound, inst.ctx._points); inst.bound = null }
-    for (const p of inst.ctx._points) p.group = inst.id
-    for (const c of inst.ctx._colliders) c.group = inst.id
+    if (inst.bound) { this.physics.detachFromBody(inst.bound, inst.ctx.owned.points); inst.bound = null }
+    for (const p of inst.ctx.owned.points) p.group = inst.id
+    for (const c of inst.ctx.owned.colliders) c.group = inst.id
   }
 
   setParent(inst, parentId) {

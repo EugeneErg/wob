@@ -9,7 +9,7 @@ import { bboxOfPoints, distToPolyline, nearestEdgeIndex } from '../../core/geom.
 export default defineEntity({
   type: 'pipe',
   title: 'Труба',
-  z: LAYERS.device,
+  z: LAYERS.midground,
   icon: '<svg viewBox="0 0 24 24"><path d="M4 18v-6a5 5 0 0 1 5-5h11" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></svg>',
 
   defaults: () => ({

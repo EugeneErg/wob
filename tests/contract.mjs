@@ -4,7 +4,7 @@
 import '../src/entities/index.js'
 import { defineEntity, allEntities, getEntity } from '../src/core/registry.js'
 import { World } from '../src/core/world.js'
-import { shapesForLevel } from '../src/core/scene.js'
+import { shapesForLevel, readOnlyContext, contextSurface } from '../src/core/scene.js'
 import { EVENTS, LAYERS } from '../src/core/globals.js'
 
 let sawForeign = null
@@ -24,7 +24,11 @@ defineEntity({
     if (foreign && !sawForeign) sawForeign = Object.keys(foreign)
     if (ctx.time > 0.5 && !rt.done) { rt.done = true; ctx.emit(EVENTS.progress, { delta: 1 }) }
   },
-  shapes: (data, rt) => [{ k: 'circle', x: rt?.p ? rt.p.x : data.x, y: rt?.p ? rt.p.y : data.y, r: 10, fill: '#fff' }],
+  // отрисовка вправе спрашивать мир — и в игре, и в редакторе
+  shapes: (data, rt, ctx) => [{
+    k: 'circle', x: rt?.p ? rt.p.x : data.x, y: rt?.p ? rt.p.y : data.y,
+    r: ctx.solidAt(data.x, data.y) ? 12 : 10, fill: '#fff',
+  }],
   editor: {
     create: { start: () => ({}), click: (d, pt) => { Object.assign(d, pt); return 'done' }, finish: (d) => ({ x: d.x, y: d.y }) },
     bounds: (d) => ({ x: d.x - 10, y: d.y - 10, w: 20, h: 20 }),
@@ -69,3 +73,11 @@ const api = Object.keys(inst.ctx).concat(Object.getOwnPropertyNames(Object.getPr
 const leaks = api.filter((k) => /type|instances|entity|def/i.test(k))
 console.log('5. в фасаде нет доступа к типам и инстансам:', leaks.length === 0, leaks.length ? leaks.join(',') : '')
 console.log('   peers() отдаёт только своих:', inst.ctx.peers().length === 0, '(в мире есть шар и рельеф, но они чужого типа)')
+
+// 6. контекст в редакторе той же формы, что и в игре
+const stub = readOnlyContext(level, level.entities[1])
+const missing = contextSurface().filter((k) => !(k in stub))
+console.log('6. заглушка редактора покрывает весь фасад:', missing.length === 0, missing.join(',') || '')
+let guarded = false
+try { stub.addPoint({}) } catch { guarded = true }
+console.log('   меняющие мир методы в редакторе запрещены:', guarded)
