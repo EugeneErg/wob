@@ -25,6 +25,7 @@
 <script setup>
 import { ref, shallowRef, onMounted, onBeforeUnmount, computed } from 'vue'
 import { World } from '../core/world.js'
+import { EVENTS } from '../core/globals.js'
 import { svgPoint } from '../core/svgPoint.js'
 import SvgScene from './SvgScene.js'
 
@@ -33,7 +34,7 @@ const props = defineProps({
   interactive: { type: Boolean, default: true },
   paused: { type: Boolean, default: false },
 })
-const emit = defineEmits(['collected'])
+const emit = defineEmits(['progress'])
 
 const svg = ref(null)
 const shapes = shallowRef([])
@@ -48,7 +49,7 @@ let off = null
 function build() {
   off?.()
   world.value = new World(structuredClone(props.level))
-  off = world.value.on('ball:collected', () => emit('collected'))
+  off = world.value.on(EVENTS.progress, (e) => emit('progress', e?.delta ?? 1))
   shapes.value = world.value.scene()
 }
 

@@ -16,7 +16,7 @@ const level = {
 
 const w = new World(structuredClone(level))
 let collected = 0
-w.on('ball:collected', () => collected++)
+w.on('goal:progress', (e) => (collected += e.delta))
 
 const run = (sec) => { for (let i = 0; i < sec * 60; i++) w.step(1 / 60) }
 

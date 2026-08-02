@@ -4,7 +4,7 @@ import { readFileSync } from 'fs'
 const lvl = JSON.parse(readFileSync(new URL('../src/levels/lift.json', import.meta.url), 'utf8'))
 const w = new World(structuredClone(lvl))
 let got = 0
-w.on('ball:collected', () => got++)
+w.on('goal:progress', (e) => (got += e.delta))
 const run = (n) => { for (let i = 0; i < n; i++) w.step(1 / 60) }
 const balls = () => w.instances.filter((x) => x.type === 'game-ball')
 const slab = () => w.instances.find((x) => x.type === 'object').rt.verts

@@ -1,6 +1,6 @@
 import { defineEntity } from '../../core/registry.js'
 import { clamp, closestOnSegment } from '../../core/geom.js'
-import { LAYERS } from '../../core/globals.js'
+import { LAYERS, EVENTS } from '../../core/globals.js'
 
 // Игровой шар.
 // Глобально: attachable = true только когда шар уже часть конструкции.
@@ -436,7 +436,7 @@ function walk(rt, ctx, dt, data) {
 
   if (w.t >= 1) {
     const node = ahead
-    if (node.suction > 0) { ctx.emit('ball:collected'); ctx.despawnSelf(); return }
+    if (node.suction > 0) { ctx.emit(EVENTS.progress, { delta: 1 }); ctx.despawnSelf(); return }
     const next = nextLink(ctx, node, w.link)
     if (!next) { rt.state = 'free'; p.pinned = false; return }
     w.link = next

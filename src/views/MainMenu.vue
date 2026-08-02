@@ -16,26 +16,9 @@
 
 <script setup>
 import WorldCanvas from '../components/WorldCanvas.vue'
+import demo from '../levels/menu.json'   // фон меню — обычный уровень
 defineEmits(['go'])
 
-let n = 0
-const ball = (x, y) => ({
-  id: 'mb' + n++,
-  type: 'game-ball',
-  data: { x, y, r: 13, builtR: 13, mass: 1, builtMass: 1, anchorable: true, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' },
-})
-
-const demo = {
-  id: 'menu', name: 'menu', width: 1600, height: 900,
-  gravity: { x: 0, y: 1800 }, goal: 99,
-  entities: [
-    { id: 'mt', type: 'terrain', data: { points: [[0, 800], [1600, 800], [1600, 900], [0, 900]], smoothness: 0.35, fill: '#232e20', edge: '#4d6338' } },
-    { id: 'ms1', type: 'system-ball', data: { x: 1180, y: 806, r: 17, static: true, links: ['ms2'], color: '#d8cbb0', linkColor: '#b9ae95' } },
-    { id: 'ms2', type: 'system-ball', data: { x: 1290, y: 806, r: 17, static: true, links: ['ms1'], color: '#d8cbb0', linkColor: '#b9ae95' } },
-    { id: 'mp', type: 'pipe', data: { points: [[1240, 330], [1240, 150], [1580, 150]], radius: 30, power: 1, color: '#4c93c4', inner: '#0d1a24' } },
-    ...[980, 1030, 1080, 1000, 1050, 1100, 1400, 1450, 1350].map((x, i) => ball(x, 700 - (i % 3) * 40)),
-  ],
-}
 </script>
 
 <style scoped>

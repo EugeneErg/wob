@@ -1,6 +1,6 @@
 <template>
   <div class="game">
-    <WorldCanvas ref="canvas" :level="level" @collected="onCollected" />
+    <WorldCanvas ref="canvas" :level="level" @progress="onProgress" />
 
     <div class="hud">
       <button class="btn ghost small" @click="$emit('back')">← Уровни</button>
@@ -34,7 +34,7 @@ defineEmits(['back'])
 
 const canvas = ref(null)
 const collected = ref(0)
-const onCollected = () => collected.value++
+const onProgress = (n) => (collected.value += n)
 function restart() { collected.value = 0; canvas.value.restart() }
 </script>
 
