@@ -1,9 +1,10 @@
 import tower from '../levels/tower.json'
 import bridge from '../levels/bridge.json'
 import lift from '../levels/lift.json'
+import dig from '../levels/dig.json'
 
-const KEY = 'goo.levels.v4'
-const BUILTIN = [tower, bridge, lift]
+const KEY = 'goo.levels.v5'
+const BUILTIN = [tower, bridge, lift, dig]
 
 function read() {
   try {

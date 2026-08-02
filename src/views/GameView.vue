@@ -1,6 +1,6 @@
 <template>
   <div class="game">
-    <WorldCanvas ref="canvas" :level="level" @progress="onProgress" />
+    <WorldCanvas ref="canvas" :level="level" @progress="onProgress" @missing="onMissing" />
 
     <div class="hud">
       <button class="btn ghost small" @click="$emit('back')">← Уровни</button>
@@ -11,6 +11,10 @@
       </div>
       <button class="btn small" @click="restart">Заново</button>
     </div>
+
+    <p v-if="missing.length" class="warn">
+      Уровень использует сущности, которых нет в сборке: {{ missing.join(', ') }}
+    </p>
 
     <transition name="pop">
       <div v-if="collected >= level.goal" class="win">
@@ -35,6 +39,8 @@ defineEmits(['back'])
 const canvas = ref(null)
 const collected = ref(0)
 const onProgress = (n) => (collected.value += n)
+const missing = ref([])
+const onMissing = (types) => (missing.value = types)
 function restart() { collected.value = 0; canvas.value.restart() }
 </script>
 
@@ -57,6 +63,11 @@ function restart() { collected.value = 0; canvas.value.restart() }
 .counter .cap { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
 .counter.done .num { color: var(--moss); }
 
+.warn {
+  position: absolute; left: 50%; transform: translateX(-50%); top: 62px; margin: 0;
+  background: rgba(11, 16, 20, 0.9); border: 1px solid #8c5a2c; color: #ffd9a0;
+  border-radius: 10px; padding: 8px 14px; font-size: 13px;
+}
 .win {
   position: absolute; inset: auto 0 0 0; margin: auto; bottom: 12%;
   width: max-content; text-align: center;

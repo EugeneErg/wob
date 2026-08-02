@@ -61,3 +61,27 @@ export function nearestEdgeIndex(x, y, pts, closed = false) {
   }
   return best
 }
+
+// Область может быть с дырками: мультиполигон — список полигонов,
+// у каждого первое кольцо внешнее, остальные — дырки.
+export function insideRegion(x, y, polys) {
+  for (const poly of polys) {
+    if (!pointInPoly(x, y, poly[0])) continue
+    let hole = false
+    for (let i = 1; i < poly.length; i++) if (pointInPoly(x, y, poly[i])) { hole = true; break }
+    if (!hole) return true
+  }
+  return false
+}
+
+export const ringsOf = (polys) => polys.flat()
+
+export function bboxOfRings(rings) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const r of rings) for (const [x, y] of r) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x
+    if (y < minY) minY = y; if (y > maxY) maxY = y
+  }
+  if (minX === Infinity) return { x: 0, y: 0, w: 0, h: 0 }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+}

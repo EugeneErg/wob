@@ -3,6 +3,7 @@
 
 import './terrain/index.js'
 import './object/index.js'
+import './sand/index.js'
 import './system-ball/index.js'
 import './game-ball/index.js'
 import './pipe/index.js'

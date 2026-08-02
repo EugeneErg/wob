@@ -1,6 +1,7 @@
 import { Physics } from './verlet.js'
 import { getEntity } from './registry.js'
-import { closestOnSegment, pointInPoly, bboxOfPoints } from './geom.js'
+import { EVENTS } from './globals.js'
+import { closestOnSegment, insideRegion, bboxOfPoints } from './geom.js'
 import { composeShapes } from './scene.js'
 
 let UID = 1
@@ -9,7 +10,7 @@ export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toStrin
 // Всё, что меняет мир: в редакторе этого нет, отрисовка обязана быть чистой.
 export const CONTEXT_MUTATORS = [
   'addPoint', 'addLink', 'addCollider', 'addBody',
-  'removePoint', 'removeLink', 'applyAccel', 'setMass',
+  'removePoint', 'removeLink', 'removeCollider', 'setRegion', 'applyAccel', 'setMass',
   'emit', 'despawnSelf', 'destroy',
 ]
 
@@ -57,6 +58,9 @@ export class EntityContext {
     return b
   }
   removePoint(p) { this.world.physics.removePoint(p) }
+  removeCollider(c) { this.world.physics.removeCollider(c) }
+  // Заменить область коллайдера — так копают песок и рушат стены
+  setRegion(c, polys) { return this.world.physics.setRegion(c, polys) }
   removeLink(l) { this.world.physics.removeLink(l) }
   applyAccel(p, ax, ay) { this.world.physics.applyAccel(p, ax, ay) }
   setMass(p, m) { this.world.physics.setMass(p, m) }
@@ -90,7 +94,7 @@ export class EntityContext {
 
   // Есть ли в этой точке твёрдая статика — сущности этим щупают землю
   solidAt(x, y) {
-    for (const c of this.world.physics.colliders) if (pointInPoly(x, y, c.points)) return true
+    for (const c of this.world.physics.colliders) if (insideRegion(x, y, c.polys)) return true
     return false
   }
 
@@ -126,7 +130,7 @@ export class EntityContext {
         const t = i / samples
         const x = a.x + (b.x - a.x) * t
         const y = a.y + (b.y - a.y) * t
-        if (pointInPoly(x, y, c.points)) return true
+        if (insideRegion(x, y, c.polys)) return true
       }
     }
     return false
@@ -223,6 +227,7 @@ export class World {
     this._listeners = {}
     this._drag = null
     this.pointer = null
+    this.missing = []   // типы, которых нет в сборке — уровень их не потерял, но и не показал
     for (const e of level.entities || []) this.spawn(e.type, e.data, e.id, e.parent)
   }
 
@@ -234,7 +239,12 @@ export class World {
 
   spawn(type, data, id, parent = null) {
     const def = getEntity(type)
-    if (!def) { console.warn('Неизвестная сущность:', type); return null }
+    if (!def) {
+      // молча терять часть уровня нельзя: сообщаем наверх
+      if (!this.missing.includes(type)) this.missing.push(type)
+      this.emit(EVENTS.missing, { type, id })
+      return null
+    }
     const inst = {
       id: id || newId(type + '-'),
       type, def, parent,

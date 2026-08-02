@@ -48,13 +48,16 @@ export default defineEntity({
       mass: data.mass ?? 1,
       restitution: 0.12,
       smoothness: 0.55,
-      collision: { world: true, points: false },
+      // спящие живут по обычной физике и толкают друг друга,
+      // активные проходят сквозь всё, кроме статики
+      collision: { world: true, points: !!data.asleep },
       attachable: false,
     })
     return {
       p, state: 'free', walk: null, climb: null, links: [], preview: [], ghost: null,
       asleep: !!data.asleep, hover: false,
       cd: 0, dir: Math.random() < 0.5 ? -1 : 1, pause: 0, retreat: 0, look: { x: 0, y: 1 },
+      phase: Math.random() * Math.PI * 2, rate: 3.0 + Math.random() * 1.8, gait: 1,
     }
   },
 
@@ -92,7 +95,10 @@ export default defineEntity({
       const touch = ctx.nearest(p, (q) => q !== p && q.attachable, p.radius + 90)
       const near = touch && Math.hypot(touch.x - p.x, touch.y - p.y) < p.radius + touch.radius + 6
       const rail = ctx.closestOnLinks(p, (l) => passable(l.a) && passable(l.b))
-      if (near || (rail && rail.dist < p.radius + 6)) { rt.asleep = false; ctx.emit('ball:woke') }
+      if (near || (rail && rail.dist < p.radius + 6)) {
+        rt.asleep = false
+        p.collision.points = false   // проснулся — стал проходить сквозь своих
+      }
       return
     }
 
@@ -143,7 +149,11 @@ export default defineEntity({
     if (st === 'walk' || ghost) {
       out.push({ k: 'circle', layer, x, y, r: r + 4, fill: 'none', stroke: ok ? '#ffd9a0' : '#c0563a', sw: 2, opacity: 0.55 })
     }
-    out.push({ k: 'circle', layer, x, y, r, fill: data.color, stroke: '#7a2f14', sw: 2.5, opacity: ghost && !ok ? 0.65 : 1 })
+    const moving = st === 'walk' || (st === 'free' && !rt?.asleep)
+    const sq = moving ? ((rt?.gait ?? 1) - 0.5) * 0.26 : 0
+    out.push(sq
+      ? { k: 'ellipse', layer, x, y, rx: r * (1 + sq), ry: r * (1 - sq), fill: data.color, stroke: '#7a2f14', sw: 2.5, opacity: ghost && !ok ? 0.65 : 1 }
+      : { k: 'circle', layer, x, y, r, fill: data.color, stroke: '#7a2f14', sw: 2.5, opacity: ghost && !ok ? 0.65 : 1 })
 
     const look = rt?.look || { x: 0, y: 1 }
     const ex = r * 0.36, ey = -r * 0.18
@@ -308,6 +318,16 @@ function climb(rt, ctx, dt, data) {
   }
 }
 
+// Улиточная походка: шар не едет с постоянной скоростью, а подтягивается
+// толчками — своя фаза и свой темп у каждого.
+function gait(rt, ctx) {
+  const s = 0.5 + 0.5 * Math.sin(ctx.time * rt.rate + rt.phase)
+  // делим на среднее значение профиля, чтобы средний темп остался прежним,
+  // а движение стало рывками: от четверти скорости до двух с половиной
+  rt.gait = (0.1 + 0.9 * Math.pow(s, 1.9)) / 0.42
+  return rt.gait
+}
+
 // По чьим связям вообще можно ползать: узел должен разрешать зацеп,
 // а всасывание — это законный конец пути.
 const passable = (q) => q.attachable || q.suction > 0
@@ -380,7 +400,7 @@ function roam(rt, ctx, dt, data) {
   const v = (p.x - p.px) * 120
   const air = grounded ? 1 : 0.3
   const cap = data.speed ?? 95
-  const push = go && Math.abs(v) < cap ? go * 1400 * air : 0
+  const push = go && Math.abs(v) < cap ? go * 1400 * air * gait(rt, ctx) : 0
   const brake = go === 0 && grounded ? -v * 6 : 0
   ctx.applyAccel(p, push + brake, 0)
 }
@@ -427,7 +447,7 @@ function walk(rt, ctx, dt, data) {
   if (!passable(ahead)) { rt.state = 'free'; p.pinned = false; return }
   const path = ctx.pathFrom(ahead, (q) => q.suction > 0, passable)
   const suck = path ? path[path.length - 1].suction : 0
-  const speed = path ? 80 + 150 * clamp(suck, 0, 3) : 55
+  const speed = (path ? 80 + 150 * clamp(suck, 0, 3) : 55) * gait(rt, ctx)
 
   w.t += (speed * dt) / llen(w.link)
   rt.look = { x: ahead.x - w.from.x, y: ahead.y - w.from.y }

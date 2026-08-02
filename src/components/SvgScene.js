@@ -12,6 +12,7 @@ const common = (s) => ({
   'stroke-linecap': s.cap ?? undefined,
   'stroke-linejoin': s.join ?? undefined,
   'stroke-dasharray': s.dash ?? undefined,
+  'fill-rule': s.fillRule ?? undefined,
   opacity: s.opacity ?? undefined,
   class: s.class || undefined,
 })
@@ -21,6 +22,8 @@ function draw(s, i) {
   switch (s.k) {
     case 'circle':
       return h('circle', { key: i, cx: s.x, cy: s.y, r: s.r, ...common(s) })
+    case 'ellipse':
+      return h('ellipse', { key: i, cx: s.x, cy: s.y, rx: s.rx, ry: s.ry, ...common(s) })
     case 'poly':
       return h(s.closed ? 'polygon' : 'polyline', { key: i, points: ptsStr(s.pts), ...common(s) })
     case 'line':

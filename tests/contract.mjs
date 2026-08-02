@@ -74,10 +74,16 @@ const leaks = api.filter((k) => /type|instances|entity|def/i.test(k))
 console.log('5. в фасаде нет доступа к типам и инстансам:', leaks.length === 0, leaks.length ? leaks.join(',') : '')
 console.log('   peers() отдаёт только своих:', inst.ctx.peers().length === 0, '(в мире есть шар и рельеф, но они чужого типа)')
 
-// 6. контекст в редакторе той же формы, что и в игре
+// 6. неизвестный тип не теряется молча
+const w2 = new World({ width: 100, height: 100, entities: [{ id: 'x', type: 'нет-такой', data: {} }] })
+let told = null
+new World({ width: 100, height: 100, entities: [] }).on(EVENTS.missing, () => {})
+console.log('6. про неизвестный тип мир сообщает:', w2.missing.join(',') === 'нет-такой')
+
+// 7. контекст в редакторе той же формы, что и в игре
 const stub = readOnlyContext(level, level.entities[1])
 const missing = contextSurface().filter((k) => !(k in stub))
-console.log('6. заглушка редактора покрывает весь фасад:', missing.length === 0, missing.join(',') || '')
+console.log('7. заглушка редактора покрывает весь фасад:', missing.length === 0, missing.join(',') || '')
 let guarded = false
 try { stub.addPoint({}) } catch { guarded = true }
 console.log('   меняющие мир методы в редакторе запрещены:', guarded)

@@ -1,0 +1,25 @@
+import '../src/entities/index.js'
+import { World } from '../src/core/world.js'
+import { readFileSync } from 'fs'
+const lvl = JSON.parse(readFileSync(new URL('../src/levels/dig.json', import.meta.url), 'utf8'))
+const w = new World(structuredClone(lvl))
+const run = (n) => { for (let i = 0; i < n; i++) w.step(1 / 60) }
+const balls = () => w.instances.filter((x) => x.type === 'game-ball')
+const past = () => balls().filter((b) => b.rt.p.x > 830).length
+
+run(60 * 6)
+console.log('до раскопок за стеной шаров:', past(), '| максимальный x:', Math.max(...balls().map((b) => b.rt.p.x)).toFixed(0), '(стена 620..820)')
+
+// игрок прокапывает тоннель у самой земли, ведя справа налево
+// (начинать надо там, где под курсором нет шара — иначе схватится шар)
+w.pointerDown({ x: 815, y: 782 })
+for (let x = 815; x >= 622; x -= 15) { w.pointerMove({ x, y: 782 }); w.step(1 / 60) }
+w.pointerUp({ x: 622, y: 782 })
+const sand = w.instances.find((i) => i.type === 'sand')
+console.log('колец в песке после тоннеля:', sand.rt.polys.flat().length)
+for (let t = 0; t < 6; t++) {
+  run(60 * 5)
+  const xs = balls().map((b) => b.rt.p.x)
+  const before = xs.filter((x) => x < 620).length, inside = xs.filter((x) => x >= 620 && x <= 830).length
+  console.log(`  +${(t + 1) * 5}c: до стены ${before}, в тоннеле ${inside}, за стеной ${past()}`)
+}

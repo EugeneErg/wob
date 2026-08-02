@@ -34,7 +34,7 @@ const props = defineProps({
   interactive: { type: Boolean, default: true },
   paused: { type: Boolean, default: false },
 })
-const emit = defineEmits(['progress'])
+const emit = defineEmits(['progress', 'missing'])
 
 const svg = ref(null)
 const shapes = shallowRef([])
@@ -50,6 +50,7 @@ function build() {
   off?.()
   world.value = new World(structuredClone(props.level))
   off = world.value.on(EVENTS.progress, (e) => emit('progress', e?.delta ?? 1))
+  if (world.value.missing.length) emit('missing', [...world.value.missing])
   shapes.value = world.value.scene()
 }
 

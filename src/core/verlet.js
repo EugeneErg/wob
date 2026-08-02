@@ -1,7 +1,7 @@
 // Собственный верле-солвер.
 // Знает только о глобальных свойствах (см. core/globals.js) и ничего — о сущностях.
 
-import { clamp, closestOnSegment, pointInPoly, bboxOfPoints } from './geom.js'
+import { clamp, closestOnSegment, insideRegion, ringsOf, bboxOfRings } from './geom.js'
 
 let UID = 1
 const nid = (p) => p + UID++
@@ -186,6 +186,7 @@ export class Physics {
       id: nid('c'),
       verts: o.verts ? [...o.verts] : null,        // если заданы — геометрия живая
       points: o.verts ? o.verts.map((p) => [p.x, p.y]) : (o.points || []),
+      polys: null,                                  // мультиполигон: область может быть с дырками
       smoothness: o.smoothness ?? 0.5,
       restitution: o.restitution ?? 0.1,
       owner: o.owner || null,
@@ -193,8 +194,17 @@ export class Physics {
       removed: false,
     }
     c.dynamic = !!c.verts
-    c.bbox = bboxOfPoints(c.points)
+    this.setRegion(c, o.polys || [[c.points]])
     this.colliders.push(c)
+    return c
+  }
+
+  // Заменить область коллайдера (песок после раскопки, разрушаемая стена и т. д.)
+  setRegion(c, polys) {
+    c.polys = polys
+    c.rings = ringsOf(polys)
+    c.points = c.rings[0] || []
+    c.bbox = bboxOfRings(c.rings)
     return c
   }
 
@@ -329,7 +339,7 @@ export class Physics {
         c.points[i][0] = c.verts[i].x
         c.points[i][1] = c.verts[i].y
       }
-      c.bbox = bboxOfPoints(c.points)
+      c.bbox = bboxOfRings(c.rings)
     }
   }
 
@@ -396,30 +406,33 @@ export class Physics {
 
   // Ближайшая точка границы и внешняя нормаль, если тело её касается
   _contact(p, c, slack = 0) {
-    const pts = c.points
-    if (!pts.length) return null
+    const rings = c.rings
+    if (!rings || !rings.length) return null
     const bb = c.bbox
     if (p.x + p.radius < bb.x || p.x - p.radius > bb.x + bb.w) return null
     if (p.y + p.radius < bb.y || p.y - p.radius > bb.y + bb.h) return null
 
+    // граница области — это все её кольца, включая дырки
     const closest = (x, y) => {
       let q = null, best = Infinity, edge = 0, t = 0
-      for (let i = 0, n = pts.length; i < n; i++) {
-        const a = pts[i], b = pts[(i + 1) % n]
-        const s = closestOnSegment(x, y, a[0], a[1], b[0], b[1])
-        const d = Math.hypot(x - s.x, y - s.y)
-        if (d < best) { best = d; q = s; edge = i; t = s.t }
+      for (const ring of rings) {
+        for (let i = 0, n = ring.length; i < n; i++) {
+          const a = ring[i], b = ring[(i + 1) % n]
+          const s = closestOnSegment(x, y, a[0], a[1], b[0], b[1])
+          const d = Math.hypot(x - s.x, y - s.y)
+          if (d < best) { best = d; q = s; edge = i; t = s.t }
+        }
       }
       return { q, d: best, edge, t }
     }
 
-    const inside = pointInPoly(p.x, p.y, pts)
+    const inside = insideRegion(p.x, p.y, c.polys)
     let { q, d, edge, t } = closest(p.x, p.y)
     if (!q) return null
     if (!inside && d >= p.radius + slack) return null
 
     let nx, ny
-    if (inside && !pointInPoly(p.px, p.py, pts)) {
+    if (inside && !insideRegion(p.px, p.py, c.polys)) {
       // влетел за один шаг — выталкиваем туда, откуда пришёл
       const prev = closest(p.px, p.py)
       q = prev.q; edge = prev.edge; t = prev.t
@@ -431,6 +444,7 @@ export class Physics {
       nx = (p.x - q.x) / d; ny = (p.y - q.y) / d
       if (inside) { nx = -nx; ny = -ny }
     }
+
     const depth = inside ? p.radius + d : p.radius - d
     return { qx: q.x, qy: q.y, nx, ny, depth, i: edge, t }
   }
