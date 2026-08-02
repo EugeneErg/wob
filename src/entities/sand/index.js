@@ -76,9 +76,12 @@ export default defineEntity({
     ]
   },
 
-  // копать можно только в игре: у сущности есть pointer, значит игрок ей управляет
+  // Копать можно начиная откуда угодно, не обязательно с самого песка.
+  // Поэтому hit всегда true, но с самым низким приоритетом: любая другая
+  // сущность под курсором (шар, например) забирает жест себе.
   pointer: {
-    hit(rt, ctx, pt) { return !!rt.polys && insideRegion(pt.x, pt.y, rt.polys) },
+    priority: -10,
+    hit: () => true,
     down(rt, ctx, pt, data) { rt.last = { x: pt.x, y: pt.y }; carve(rt, ctx, pt, pt, data) },
     move(rt, ctx, pt, data) {
       const a = rt.last || pt
@@ -139,13 +142,21 @@ export default defineEntity({
   },
 })
 
+// Жест достаётся одной куче песка, а копать надо во всех: соседи своего типа
+// доступны через ctx.peers(), чужие сущности по-прежнему невидимы.
 function carve(rt, ctx, a, b, data) {
-  if (!rt.polys || !rt.c) return
   const cut = capsule(a.x, a.y, b.x, b.y, data.dig ?? 14)
+  dig(ctx, rt, cut)
+  for (const peer of ctx.peers()) if (peer.rt) dig(ctx, peer.rt, cut)
+}
+
+function dig(ctx, rt, cut) {
+  if (!rt.polys || !rt.polys.length || !rt.c) return
   let left
   try { left = polygonClipping.difference(rt.polys, cut) } catch { return }
-  if (!left || !left.length) { rt.polys = []; ctx.removeCollider?.(rt.c); rt.c = null; return }
+  if (!left) return
+  if (!left.length) { rt.polys = []; ctx.removeCollider(rt.c); rt.c = null; return }
   rt.polys = left
   ctx.setRegion(rt.c, left)
-  rt.dug++
+  rt.dug = (rt.dug || 0) + 1
 }

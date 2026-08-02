@@ -37,6 +37,7 @@ export class Physics {
       py: y - (o.vy || 0),
       ax: 0, ay: 0,   // ускорение от сущностей (живёт весь кадр)
       fx: 0, fy: 0,   // сила от связей (пересчитывается каждый подшаг)
+      cn: 0,          // сколько контакт вытолкнул за подшаг = нормальный импульс
       // глобальные свойства
       radius: o.radius ?? 8,
       mass,
@@ -243,6 +244,7 @@ export class Physics {
 
     // 2. решение ограничений — только позиции
     for (const l of this.links) l.lambda = 0
+    for (const p of this.points) p.cn = 0
     for (let i = 0; i < this.iterations; i++) {
       this._solveLinks(dt)
       this._solveBodies()
@@ -353,8 +355,9 @@ export class Physics {
         const ct = this._contact(p, c)
         if (!ct) continue
         if (!c.dynamic) {
-          p.x = ct.qx + ct.nx * p.radius
-          p.y = ct.qy + ct.ny * p.radius
+          const tx = ct.qx + ct.nx * p.radius, ty = ct.qy + ct.ny * p.radius
+          p.cn += Math.hypot(tx - p.x, ty - p.y)
+          p.x = tx; p.y = ty
           continue
         }
         const a = c.verts[ct.i], b = c.verts[(ct.i + 1) % c.verts.length]
@@ -366,6 +369,7 @@ export class Physics {
         const sum = wp + we
         if (!sum) continue
         const d = Math.min(ct.depth, 16) // разлипаем постепенно, а не рывком
+        p.cn += d * (wp / sum)
         p.x += ct.nx * d * (wp / sum); p.y += ct.ny * d * (wp / sum)
         if (wa) { a.x -= ct.nx * d * ((1 - t) * wa) / sum; a.y -= ct.ny * d * ((1 - t) * wa) / sum }
         if (wb) { b.x -= ct.nx * d * (t * wb) / sum; b.y -= ct.ny * d * (t * wb) / sum }
@@ -392,12 +396,17 @@ export class Physics {
         const rest = (p.restitution + c.restitution) * 0.5
         // гладкость 0 — шершавая поверхность, 1 — лёд
         const avg = clamp((p.smoothness + c.smoothness) * 0.5, 0, 1)
-        const keep = 0.6 + 0.4 * avg
+        const mu = 1 - avg
         const tx = -ny, ty = nx
         const vn = vx * nx + vy * ny
         const vt = vx * tx + vy * ty
         const nvn = vn < 0 ? -vn * rest : vn
-        const nvt = vt * keep
+        // Кулоново трение: касательную скорость гасит не постоянная доля, а сила,
+        // пропорциональная нормальному импульсу. Сам импульс берём из позиционной
+        // коррекции — к этому месту нормальная скорость уже погашена ею же.
+        const j = p.cn + (vn < 0 ? -vn * (1 + rest) : 0)
+        const drop = Math.min(Math.abs(vt), mu * j)
+        const nvt = vt - Math.sign(vt) * drop
         p.px = p.x - (nvn * nx + nvt * tx + sx)
         p.py = p.y - (nvn * ny + nvt * ty + sy)
       }

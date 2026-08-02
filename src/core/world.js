@@ -340,16 +340,20 @@ export class World {
   }
 
   // Ввод: мир не знает, кто как реагирует — просто спрашивает сущности.
+  // Если попали в несколько, берём того, у кого выше pointer.priority,
+  // затем выше слой отрисовки, затем кто создан позже.
   pointerDown(pt) {
-    for (let i = this.instances.length - 1; i >= 0; i--) {
+    let best = null, key = -Infinity
+    for (let i = 0; i < this.instances.length; i++) {
       const it = this.instances[i]
-      if (it.def.pointer?.hit?.(it.rt, it.ctx, pt, it.data)) {
-        this._drag = it
-        it.def.pointer.down?.(it.rt, it.ctx, pt, it.data)
-        return true
-      }
+      if (!it.def.pointer?.hit?.(it.rt, it.ctx, pt, it.data)) continue
+      const k = (it.def.pointer.priority ?? 0) * 1e6 + (it.def.z || 0) * 1e3 + i
+      if (k > key) { key = k; best = it }
     }
-    return false
+    if (!best) return false
+    this._drag = best
+    best.def.pointer.down?.(best.rt, best.ctx, pt, best.data)
+    return true
   }
   pointerMove(pt) {
     this.pointer = pt

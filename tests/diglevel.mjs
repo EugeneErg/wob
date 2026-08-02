@@ -10,11 +10,10 @@ const past = () => balls().filter((b) => b.rt.p.x > 830).length
 run(60 * 6)
 console.log('до раскопок за стеной шаров:', past(), '| максимальный x:', Math.max(...balls().map((b) => b.rt.p.x)).toFixed(0), '(стена 620..820)')
 
-// игрок прокапывает тоннель у самой земли, ведя справа налево
-// (начинать надо там, где под курсором нет шара — иначе схватится шар)
-w.pointerDown({ x: 815, y: 782 })
-for (let x = 815; x >= 622; x -= 15) { w.pointerMove({ x, y: 782 }); w.step(1 / 60) }
-w.pointerUp({ x: 622, y: 782 })
+// начинаем жест далеко от песка, в пустоте слева — подкоп всё равно должен получиться
+w.pointerDown({ x: 950, y: 782 })
+for (let x = 950; x >= 500; x -= 15) { w.pointerMove({ x, y: 782 }); w.step(1 / 60) }
+w.pointerUp({ x: 500, y: 782 })
 const sand = w.instances.find((i) => i.type === 'sand')
 console.log('колец в песке после тоннеля:', sand.rt.polys.flat().length)
 for (let t = 0; t < 6; t++) {
