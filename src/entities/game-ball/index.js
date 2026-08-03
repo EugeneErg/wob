@@ -27,8 +27,11 @@ export default defineEntity({
     x: 0, y: 0,
     r: 13,          // свободный
     builtR: 13,     // в конструкции
+    sleepR: 13,     // спящий
     mass: 1,        // свободный
     builtMass: 1,   // в конструкции
+    sleepMass: 1,   // спящий
+    opacity: 1,
     anchorable: true, // можно ли цепляться к нему самому
     asleep: false,    // спит: игроку недоступен, будит касание конструкции
     minLinks: 2,
@@ -140,6 +143,7 @@ export default defineEntity({
     }
 
     const layer = ghost ? LAYERS.overlay : undefined
+    const bodyFrom = out.length
     if (lift) {
       out.push({ k: 'circle', layer, x, y, r: r + 5, fill: 'none', stroke: data.color, sw: 1.5, opacity: 0.5 })
       for (const s of [-1, 1]) {
@@ -149,6 +153,8 @@ export default defineEntity({
     if (st === 'walk' || ghost) {
       out.push({ k: 'circle', layer, x, y, r: r + 4, fill: 'none', stroke: ok ? '#ffd9a0' : '#c0563a', sw: 2, opacity: 0.55 })
     }
+    const body = []
+    const alpha = data.opacity ?? 1
     const moving = st === 'walk' || (st === 'free' && !rt?.asleep)
     const sq = moving ? ((rt?.gait ?? 1) - 0.5) * 0.26 : 0
     out.push(sq
@@ -172,6 +178,7 @@ export default defineEntity({
         out.push({ k: 'circle', layer, x: x + s * ex + look.x * r * 0.12, y: y + ey + look.y * r * 0.12, r: r * 0.15, fill: '#20140d' })
       }
     }
+    if (alpha < 1) for (const sh of out.slice(bodyFrom)) sh.opacity = (sh.opacity ?? 1) * alpha
     return out
   },
 
@@ -238,7 +245,7 @@ export default defineEntity({
       move(draft, pt) { draft.x = pt.x; draft.y = pt.y },
       shapes: (draft) => [{ k: 'circle', x: draft.x, y: draft.y, r: 13, fill: 'rgba(226,112,74,.5)', stroke: '#e2704a', sw: 2, dash: '4 4' }],
       finish: (draft) => (draft.ready
-        ? { x: draft.x, y: draft.y, r: 13, builtR: 13, mass: 1, builtMass: 1, anchorable: true, asleep: false, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' }
+        ? { x: draft.x, y: draft.y, r: 13, builtR: 13, sleepR: 13, mass: 1, builtMass: 1, sleepMass: 1, opacity: 1, anchorable: true, asleep: false, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' }
         : null),
     },
 
@@ -253,6 +260,7 @@ export default defineEntity({
     props: () => [
       { key: 'mass', label: 'Вес свободного', type: 'range', min: -4, max: 6, step: 0.1, global: true },
       { key: 'builtMass', label: 'Вес в конструкции (минус — летает)', type: 'range', min: -8, max: 6, step: 0.1, global: true },
+      { key: 'sleepMass', label: 'Вес спящего', type: 'range', min: -8, max: 20, step: 0.1, global: true },
       { key: 'anchorable', label: 'К нему можно цепляться', type: 'bool', global: true },
       { key: 'asleep', label: 'Спящий', type: 'bool' },
       { key: 'minLinks', label: 'Связей минимум', type: 'number', min: 1, max: 6, step: 1 },
@@ -263,6 +271,8 @@ export default defineEntity({
       { key: 'dropMax', label: 'Не прыгает вниз выше', type: 'range', min: 0, max: 600, step: 10 },
       { key: 'r', label: 'Радиус свободного', type: 'range', min: 8, max: 40, step: 1 },
       { key: 'builtR', label: 'Радиус в конструкции', type: 'range', min: 8, max: 60, step: 1 },
+      { key: 'sleepR', label: 'Радиус спящего', type: 'range', min: 6, max: 60, step: 1 },
+      { key: 'opacity', label: 'Прозрачность', type: 'range', min: 0.15, max: 1, step: 0.05 },
       { key: 'color', label: 'Цвет', type: 'color' },
     ],
   },
@@ -271,12 +281,18 @@ export default defineEntity({
 // Вес и размер у свободного шара и у встроенного разные: пока шар в руках игрока он
 // обычный, а в конструкции может стать, например, легче воздуха и раздуться.
 function applyProfile(rt, ctx, data, inStructure) {
-  const want = inStructure ? 'built' : 'free'
+  const want = inStructure ? 'built' : rt.asleep ? 'sleep' : 'free'
   if (rt.profile === want) return
   rt.profile = want
   const p = rt.p
-  ctx.setMass(p, inStructure ? (data.builtMass ?? data.mass) : data.mass)
-  p.radius = inStructure ? (data.builtR ?? data.r) : data.r
+  const mass = want === 'built' ? (data.builtMass ?? data.mass)
+    : want === 'sleep' ? (data.sleepMass ?? data.mass)
+      : data.mass
+  const r = want === 'built' ? (data.builtR ?? data.r)
+    : want === 'sleep' ? (data.sleepR ?? data.r)
+      : data.r
+  ctx.setMass(p, mass)
+  p.radius = r
 }
 
 // Заход на конструкцию: выбираем ближайшую точку проходимой связи и доходим

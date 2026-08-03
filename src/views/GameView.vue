@@ -21,7 +21,7 @@
         <p class="eyebrow">Уровень пройден</p>
         <h2>{{ level.name }}</h2>
         <div class="row">
-          <button class="btn primary" @click="$emit('back')">К уровням</button>
+          <button class="btn primary" @click="$emit('back')">На карту</button>
           <button class="btn" @click="restart">Ещё раз</button>
         </div>
       </div>
@@ -30,15 +30,18 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import WorldCanvas from '../components/WorldCanvas.vue'
+import { markDone } from '../core/library.js'
 
-defineProps({ level: { type: Object, required: true } })
+const props = defineProps({ level: { type: Object, required: true } })
 defineEmits(['back'])
 
 const canvas = ref(null)
 const collected = ref(0)
 const onProgress = (n) => (collected.value += n)
+// цель достигнута — уровень засчитан, на карте откроются тропинки дальше
+watch(collected, (n) => { if (n >= props.level.goal) markDone(props.level.id) })
 const missing = ref([])
 const onMissing = (types) => (missing.value = types)
 function restart() { collected.value = 0; canvas.value.restart() }

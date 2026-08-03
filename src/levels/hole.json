@@ -1,0 +1,207 @@
+{
+ "id": "lvl-hole",
+ "name": "Лунка",
+ "width": 2400,
+ "height": 900,
+ "gravity": {
+  "x": 0,
+  "y": 1800
+ },
+ "goal": 1,
+ "hot": [
+  "as-hole"
+ ],
+ "entities": [
+  {
+   "id": "t1",
+   "type": "terrain",
+   "data": {
+    "points": [
+     [
+      0,
+      300
+     ],
+     [
+      700,
+      300
+     ],
+     [
+      700,
+      900
+     ],
+     [
+      0,
+      900
+     ]
+    ],
+    "smoothness": 0.5,
+    "fill": "#2a3326",
+    "edge": "#66804f"
+   }
+  },
+  {
+   "id": "t2",
+   "type": "terrain",
+   "data": {
+    "points": [
+     [
+      700,
+      300
+     ],
+     [
+      1700,
+      730
+     ],
+     [
+      1700,
+      900
+     ],
+     [
+      700,
+      900
+     ]
+    ],
+    "smoothness": 0.96,
+    "fill": "#26333a",
+    "edge": "#7fb6cc"
+   }
+  },
+  {
+   "id": "sand",
+   "type": "sand",
+   "data": {
+    "points": [
+     [
+      700,
+      120
+     ],
+     [
+      960,
+      120
+     ],
+     [
+      960,
+      300
+     ],
+     [
+      700,
+      300
+     ]
+    ],
+    "polys": null,
+    "dig": 26,
+    "smoothness": 0.35,
+    "fill": "#c9a86a",
+    "edge": "#8a6f3e"
+   }
+  },
+  {
+   "id": "ball",
+   "type": "system-ball",
+   "data": {
+    "x": 830,
+    "y": 103,
+    "r": 17,
+    "static": false,
+    "links": [],
+    "color": "#d8cbb0",
+    "linkColor": "#b9ae95"
+   }
+  },
+  {
+   "id": "hole",
+   "type": "hole",
+   "data": {
+    "x": 1950,
+    "y": 820,
+    "r": 19,
+    "depth": 26,
+    "counts": true,
+    "signal": "",
+    "color": "#4a5560",
+    "glow": "#8fb36a"
+   }
+  },
+  {
+   "id": "t3",
+   "type": "terrain",
+   "data": {
+    "points": [
+     [
+      1700,
+      730
+     ],
+     [
+      1918,
+      820
+     ],
+     [
+      1918,
+      900
+     ],
+     [
+      1700,
+      900
+     ]
+    ],
+    "smoothness": 1.0,
+    "fill": "#2f3a30",
+    "edge": "#66804f"
+   }
+  },
+  {
+   "id": "t5",
+   "type": "terrain",
+   "data": {
+    "points": [
+     [
+      1982,
+      820
+     ],
+     [
+      2280,
+      700
+     ],
+     [
+      2280,
+      900
+     ],
+     [
+      1982,
+      900
+     ]
+    ],
+    "smoothness": 1.0,
+    "fill": "#2f3a30",
+    "edge": "#66804f"
+   }
+  },
+  {
+   "id": "t4",
+   "type": "terrain",
+   "data": {
+    "points": [
+     [
+      2280,
+      400
+     ],
+     [
+      2400,
+      400
+     ],
+     [
+      2400,
+      900
+     ],
+     [
+      2280,
+      900
+     ]
+    ],
+    "smoothness": 0.3,
+    "fill": "#232a20",
+    "edge": "#3f4b34"
+   }
+  }
+ ]
+}

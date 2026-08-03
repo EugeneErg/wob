@@ -11,6 +11,8 @@ export function readOnlyContext(level, entity) {
     time: 0,
     bounds: { x: 0, y: 0, w: level.width || 0, h: level.height || 0 },
     pointer: null,
+    signal: () => undefined,
+    frame: 0,
     points: [],
     links: [],
     query: () => [],

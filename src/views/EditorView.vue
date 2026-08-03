@@ -2,18 +2,47 @@
   <div class="editor">
     <!-- панель сущностей: кнопки появляются из реестра -->
     <aside class="rail">
+      <template v-if="hot.length">
+        <div class="rail-cap">Горячие</div>
+        <button
+          v-for="a in hot" :key="a.id"
+          class="tool hot" :class="{ on: creating?.asset === a }"
+          :title="a.title" @click="startAsset(a)"
+        >
+          <span class="ico" v-html="iconOf(a.type)" />
+          <span class="lbl">{{ a.title }}</span>
+        </button>
+      </template>
+
       <div class="rail-cap">Сущности</div>
       <button
         v-for="def in defs"
         :key="def.type"
         class="tool"
-        :class="{ on: creating?.def === def }"
+        :class="{ on: creating?.def === def && !creating?.asset }"
         :title="def.title"
         @click="toggleCreate(def)"
       >
         <span class="ico" v-html="def.icon" />
         <span class="lbl">{{ def.title }}</span>
       </button>
+
+      <div class="rail-cap spread">
+        Ассеты
+        <select v-model="scope" class="scope" title="Для чего отмечать горячим">
+          <option value="level">уровень</option>
+          <option value="chapter">глава</option>
+          <option value="story">история</option>
+        </select>
+      </div>
+      <div v-for="a in allAssets" :key="a.id" class="asset">
+        <button class="tool" :class="{ on: creating?.asset === a }" @click="startAsset(a)">
+          <span class="ico" v-html="iconOf(a.type)" />
+          <span class="lbl">{{ a.title }}</span>
+        </button>
+        <button class="star" :class="{ on: isHot(a) }" :title="'Горячий: ' + scope" @click="toggleHot(a)">★</button>
+        <button class="star drop" title="Удалить ассет" @click="dropAsset(a)">×</button>
+      </div>
     </aside>
 
     <main class="main">
@@ -22,6 +51,10 @@
         <input v-model="level.name" class="name" spellcheck="false" />
         <label class="field inline">Цель <input v-model.number="level.goal" type="number" min="1" class="mini" /></label>
         <label class="field inline">Гравитация <input v-model.number="level.gravity.y" type="number" step="100" class="mini" /></label>
+        <label class="field inline">Размер
+          <input v-model.number="level.width" type="number" step="100" class="mini" />
+          <input v-model.number="level.height" type="number" step="100" class="mini" />
+        </label>
         <button class="btn small" @click="save">Сохранить</button>
         <button class="btn small primary" @click="play">Проверить</button>
       </header>
@@ -97,6 +130,7 @@
           <button v-if="ctxInst" class="btn ghost small" @click="exitContext">Выйти</button>
         </div>
         <p v-if="soloBulk" class="tip">{{ soloBulk }}</p>
+        <button class="btn small wide" @click="saveAsset">Сохранить как ассет</button>
         <div v-for="f in fields" :key="f.key" class="field">
           <span class="lab">
             {{ f.label }}
@@ -143,18 +177,65 @@
 import { ref, computed, onMounted, onBeforeUnmount, shallowRef } from 'vue'
 import { allEntities, getEntity } from '../core/registry.js'
 import { shapesForLevel } from '../core/scene.js'
-import { getLevel, saveLevel, blankLevel } from '../core/levels.js'
+import * as lib from '../core/library.js'
+import { readOnlyContext } from '../core/scene.js'
 import { newId } from '../core/world.js'
 import { rectsIntersect, pointInRect } from '../core/geom.js'
 import { svgPoint } from '../core/svgPoint.js'
 import SvgScene from '../components/SvgScene.js'
 import WorldCanvas from '../components/WorldCanvas.vue'
 
-const props = defineProps({ levelId: String })
+const props = defineProps({ levelId: String, chapterId: String, storyId: String })
 const emit = defineEmits(['back'])
 
 const defs = allEntities()
-const level = ref(getLevel(props.levelId) || blankLevel())
+const iconOf = (type) => getEntity(type)?.icon || ''
+const assetTick = ref(0)
+const allAssets = computed(() => (assetTick.value, lib.assets()))
+const hot = computed(() => (assetTick.value, lib.hotAssets({
+  storyId: props.storyId, chapterId: props.chapterId, levelId: props.levelId,
+})))
+const scope = ref('level')
+const scopeId = computed(() => ({ level: props.levelId, chapter: props.chapterId, story: props.storyId }[scope.value]))
+const isHot = (a) => (assetTick.value, lib.isHot(scope.value, scopeId.value, a.id))
+function toggleHot(a) { lib.toggleHot(scope.value, scopeId.value, a.id); assetTick.value++ }
+function dropAsset(a) {
+  if (confirm(`Удалить ассет «${a.title}»?`)) { lib.removeAsset(a.id); assetTick.value++ }
+}
+function saveAsset() {
+  const e = inspected.value
+  if (!e) return
+  const title = prompt('Название ассета', e.def.title)
+  if (!title) return
+  lib.createAsset({ type: e.type, title, data: e.data })
+  assetTick.value++
+}
+
+// Ассет ставится одним кликом: копия данных переносится центром под курсор.
+// Как двигать данные, знает сама сущность — editor.move.
+function startAsset(a) {
+  const def = getEntity(a.type)
+  if (!def) return
+  creating.value = { def, asset: a, draft: { at: null } }
+  sel.value = []
+  exitContext()
+}
+function assetData(a, pt) {
+  const def = getEntity(a.type)
+  const data = structuredClone(a.data)
+  const b = def.editor.bounds?.(data)
+  if (b) def.editor.move?.(data, pt.x - (b.x + b.w / 2), pt.y - (b.y + b.h / 2))
+  return data
+}
+function placeAsset(pt) {
+  const a = creating.value.asset
+  const e = { id: newId(a.type + '-'), type: a.type, data: assetData(a, pt) }
+  level.value.entities.push(e)
+  sel.value = [e.id]
+  creating.value = null
+  mode.value = 'idle'
+}
+const level = ref(lib.level(props.levelId) || { id: props.levelId, name: 'Уровень не найден', width: 1600, height: 900, gravity: { x: 0, y: 1800 }, goal: 3, entities: [], hot: [] })
 for (const e of level.value.entities) e.id ||= newId(e.type + '-')
 
 const svg = ref(null)
@@ -264,6 +345,12 @@ const sceneShapes = computed(() => shapesForLevel(level.value))
 const draftShapes = computed(() => {
   const c = creating.value
   if (!c) return []
+  if (c.asset) {
+    if (!c.draft.at) return []
+    const data = assetData(c.asset, c.draft.at)
+    const ctx = readOnlyContext(level.value, { id: 'preview', type: c.asset.type })
+    return (c.def.shapes(data, null, ctx) || []).map((s) => ({ ...s, opacity: 0.65 }))
+  }
   return c.def.editor.create.shapes?.(c.draft) || []
 })
 
@@ -281,6 +368,7 @@ const handles = computed(() => {
 })
 
 const hint = computed(() => {
+  if (creating.value?.asset) return `Ассет «${creating.value.asset.title}»: кликните, куда поставить. Esc — отмена.`
   if (creating.value) return `${creating.value.def.title}: кликайте по холсту. Enter или повторный клик по кнопке — готово, Esc — отмена.`
   if (ctxInst.value) return 'Контекст сущности: рамкой выделяйте вершины, тащите их мышью, Del — удалить, клик по пустому месту или Esc — наружу.'
   if (bulk.value) return `Выделено ${bulk.value.list.length} шт. — справа кнопка «${bulk.value.def.editor.bulk.label}». Del — удалить.`
@@ -311,6 +399,8 @@ function onDown(e) {
       return
     }
   }
+
+  if (creating.value?.asset) { placeAsset(p); return }
 
   if (creating.value) {
     const r = creating.value.def.editor.create.click?.(creating.value.draft, p)
@@ -357,6 +447,7 @@ function onMove(e) {
     return
   }
   const p = toWorld(e)
+  if (creating.value?.asset) { creating.value = { ...creating.value, draft: { at: p } }; return }
   if (creating.value) { creating.value.def.editor.create.move?.(creating.value.draft, p); creating.value = { ...creating.value }; return }
   if (!drag) return
 
@@ -431,7 +522,7 @@ function topHit(p) {
 
 // --- режимы ----------------------------------------------------------------
 function toggleCreate(def) {
-  if (creating.value?.def === def) return finishCreate()
+  if (creating.value?.def === def && !creating.value.asset) return finishCreate()
   creating.value = { def, draft: def.editor.create.start() }
   mode.value = 'create'
   sel.value = []
@@ -442,7 +533,7 @@ function finishCreate() {
   const c = creating.value
   creating.value = null
   mode.value = 'idle'
-  if (!c) return
+  if (!c || c.asset) return
   const data = c.def.editor.create.finish?.(c.draft)
   if (data) {
     const e = { id: newId(c.def.type + '-'), type: c.def.type, data }
@@ -505,7 +596,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
 // --- сохранение / проверка --------------------------------------------------
 const snapshot = () => JSON.parse(JSON.stringify(level.value))
-function save() { saveLevel(snapshot()) }
+function save() { lib.saveLevel(snapshot()) }
 function play() { testLevel.value = snapshot(); playing.value = true }
 function leave() { save(); emit('back') }
 </script>
@@ -529,6 +620,22 @@ function leave() { save(); emit('back') }
 }
 .tool:hover { background: var(--panel); }
 .tool.on { background: rgba(226, 112, 74, 0.16); border-color: var(--goo); color: #ffd9a0; }
+.tool.hot { color: #ffd9a0; }
+.rail-cap.spread { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.scope {
+  background: #101a20; color: var(--muted); border: 1px solid var(--line);
+  border-radius: 6px; font: inherit; font-size: 10px; padding: 2px 4px;
+}
+.asset { display: flex; align-items: center; gap: 2px; }
+.asset .tool { flex: 1; min-width: 0; }
+.asset .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.star {
+  background: none; border: none; color: #38505d; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 4px 3px;
+}
+.star.on { color: var(--goo); }
+.star:hover { color: var(--text); }
+.star.drop { font-size: 16px; }
 .ico { width: 22px; height: 22px; flex: none; color: currentColor; }
 .ico :deep(svg) { width: 100%; height: 100%; display: block; }
 

@@ -9,6 +9,7 @@ export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toStrin
 
 // Всё, что меняет мир: в редакторе этого нет, отрисовка обязана быть чистой.
 export const CONTEXT_MUTATORS = [
+  'setSignal', 'shared',
   'addPoint', 'addLink', 'addCollider', 'addBody',
   'removePoint', 'removeLink', 'removeCollider', 'setRegion', 'applyAccel', 'setMass',
   'emit', 'despawnSelf', 'destroy',
@@ -32,6 +33,18 @@ export class EntityContext {
   get time() { return this.world.time }
   get bounds() { return this.world.bounds }
   get pointer() { return this.world.pointer }
+
+  // Шина сигналов: одна сущность пишет значение по имени, другая читает.
+  // Имя придумывает автор уровня в редакторе, поэтому сущности по-прежнему
+  // ничего не знают друг о друге — только про строку, которую им написали.
+  setSignal(name, value) { this.world.setSignal(name, value) }
+  signal(name) { return this.world.signals.get(name) }
+
+  // Общая среда по имени: воздух, вода — то, что не принадлежит никому
+  // и живёт, пока есть хоть один пользователь. Имя — такая же строка-договор,
+  // как у сигналов, поэтому типы сущностей друг другу по-прежнему не видны.
+  shared(name, factory) { return this.world.shared(name, factory, this.id) }
+  get frame() { return this.world.frame }
   get points() { return this.world.physics.points }
   get links() { return this.world.physics.links }
 
@@ -156,6 +169,7 @@ export class EntityContext {
   get owned() { return { points: this._points, links: this._links, colliders: this._colliders, bodies: this._bodies } }
 
   destroy() {
+    this.world.releaseShared(this.id)
     for (const b of this._bodies) this.world.physics.removeBody(b)
     for (const l of this._links) this.world.physics.removeLink(l)
     for (const p of this._points) this.world.physics.removePoint(p)
@@ -227,8 +241,32 @@ export class World {
     this._listeners = {}
     this._drag = null
     this.pointer = null
+    this.signals = new Map()
+    this.sharedStore = new Map()
+    this.frame = 0
     this.missing = []   // типы, которых нет в сборке — уровень их не потерял, но и не показал
     for (const e of level.entities || []) this.spawn(e.type, e.data, e.id, e.parent)
+  }
+
+  shared(name, factory, ownerId) {
+    let e = this.sharedStore.get(name)
+    if (!e) { e = { value: factory(), owners: new Set() }; this.sharedStore.set(name, e) }
+    e.owners.add(ownerId)
+    return e.value
+  }
+
+  releaseShared(ownerId) {
+    for (const [k, e] of this.sharedStore) {
+      e.owners.delete(ownerId)
+      if (!e.owners.size) this.sharedStore.delete(k)
+    }
+  }
+
+  setSignal(name, value) {
+    if (!name) return
+    if (this.signals.get(name) === value) return
+    this.signals.set(name, value)
+    this.emit(EVENTS.signal, { name, value })
   }
 
   on(name, fn) {
@@ -273,6 +311,7 @@ export class World {
   step(dt) {
     // сначала сущности выставляют силы и своё состояние, потом мир их интегрирует
     this.time += dt
+    this.frame++
     for (const inst of [...this.instances]) {
       inst.def.update?.(inst.rt, inst.ctx, dt, inst.data)
     }
@@ -317,13 +356,29 @@ export class World {
     if (!inst.parent) return
     const parent = this.instances.find((i) => i.id === inst.parent)
     const body = parent?.ctx.owned.bodies[0]
-    if (!body || !inst.ctx.owned.points.length) return
-    this.physics.attachToBody(body, inst.ctx.owned.points)
-    inst.bound = body
+    const points = inst.ctx.owned.points
+    if (body && points.length) {
+      this.physics.attachToBody(body, points)
+      inst.bound = body
+      return
+    }
+    // У родителя нет тела — значит ребёнка просто возят. Тогда он кинематический:
+    // собственная физика его больше не двигает, иначе он «сползает» с траектории.
+    for (const p of points) {
+      if (p.carried) continue
+      p.carried = true
+      p.pinnedBefore = p.pinned
+      p.pinned = true
+    }
   }
 
   _unbind(inst) {
     if (inst.bound) { this.physics.detachFromBody(inst.bound, inst.ctx.owned.points); inst.bound = null }
+    for (const p of inst.ctx.owned.points) {
+      if (!p.carried) continue
+      p.pinned = p.pinnedBefore
+      p.carried = false
+    }
     for (const p of inst.ctx.owned.points) p.group = inst.id
     for (const c of inst.ctx.owned.colliders) c.group = inst.id
   }

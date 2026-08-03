@@ -31,6 +31,7 @@ export const LAYERS = {
 export const EVENTS = {
   progress: 'goal:progress',   // { delta } — засчитать шаг к цели уровня
   missing: 'entity:missing',   // { type } — в уровне есть сущность, которой нет в сборке
+  signal: 'signal',            // { name, value } — общая шина сигналов уровня
 }
 
 // Глобальные свойства связи (их выставляет тот, кто связь создал,

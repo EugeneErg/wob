@@ -5,10 +5,10 @@
     <div class="content">
       <p class="eyebrow">Верле-физика · SVG · Vue</p>
       <h1 class="title">GOO</h1>
-      <p class="lede">Стройте башни из живых шаров и доведите их до трубы.<br />Шары в фоне тоже можно таскать.</p>
+      <p class="lede">Истории из глав, главы из уровней.<br />Шары в фоне тоже можно таскать.</p>
       <nav class="actions">
         <button class="btn primary" @click="$emit('go', 'play')">Играть</button>
-        <button class="btn" @click="$emit('go', 'editor')">Редактор уровней</button>
+        <button class="btn" @click="$emit('go', 'editor')">Редактор историй</button>
       </nav>
     </div>
   </div>
