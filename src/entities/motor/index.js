@@ -31,8 +31,9 @@ export default defineEntity({
   }),
 
   spawn(ctx, data) {
+    const [ax0, ay0] = ctx.place(data.x, data.y)
     const axis = ctx.addPoint({
-      x: data.x, y: data.y,
+      x: ax0, y: ay0,
       radius: 4,
       mass: data.hard ? 1 : 500,   // тяжёлая ось держит центр шарнира на месте
       pinned: true,
@@ -43,7 +44,7 @@ export default defineEntity({
     if (data.hard) {
       // вторая точка нужна, чтобы у рамки был поворот, а не только сдвиг
       rt.mark = ctx.addPoint({
-        x: data.x + data.r, y: data.y,
+        x: ax0 + data.r, y: ay0,
         radius: 2, mass: 1, pinned: true,
         attachable: false, collision: { world: false, points: false },
       })
@@ -59,11 +60,16 @@ export default defineEntity({
     if (data.hard) {
       rt.angle += target * dt
       rt.spin = target
+      const [cx, cy] = ctx.place(data.x, data.y)
+      const a = rt.angle + ctx.angle
+      const ax = rt.axis
+      ax.x = cx; ax.y = cy; ax.px = cx; ax.py = cy
       const m = rt.mark
       if (m) {
-        m.x = data.x + Math.cos(rt.angle) * data.r
-        m.y = data.y + Math.sin(rt.angle) * data.r
-        m.px = m.x; m.py = m.y
+        const nx = cx + Math.cos(a) * data.r
+        const ny = cy + Math.sin(a) * data.r
+        m.kx = (nx - m.x) * 60; m.ky = (ny - m.y) * 60
+        m.x = nx; m.y = ny; m.px = nx; m.py = ny
       }
       return
     }
@@ -92,9 +98,10 @@ export default defineEntity({
     }
   },
 
-  shapes(data, rt) {
-    const x = data.x, y = data.y, r = data.r
-    const a = rt?.angle ?? 0
+  shapes(data, rt, ctx) {
+    const [x, y] = ctx ? ctx.place(data.x, data.y) : [data.x, data.y]
+    const r = data.r
+    const a = (rt?.angle ?? 0) + (ctx?.angle ?? 0)
     const out = [
       { k: 'circle', x, y, r, fill: 'none', stroke: data.color, sw: 3, opacity: data.hard ? 0.9 : 0.5, dash: data.hard ? null : '5 6' },
       { k: 'circle', x, y, r: r * 0.3, fill: data.color, stroke: '#2b2519', sw: 2 },

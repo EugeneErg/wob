@@ -161,6 +161,9 @@ export default defineEntity({
       ? { k: 'ellipse', layer, x, y, rx: r * (1 + sq), ry: r * (1 - sq), fill: data.color, stroke: '#7a2f14', sw: 2.5, opacity: ghost && !ok ? 0.65 : 1 }
       : { k: 'circle', layer, x, y, r, fill: data.color, stroke: '#7a2f14', sw: 2.5, opacity: ghost && !ok ? 0.65 : 1 })
 
+    // прозрачность красит только тело: глаза остаются видимыми
+    if (alpha < 1) for (const sh of out.slice(bodyFrom)) sh.opacity = (sh.opacity ?? 1) * alpha
+
     const look = rt?.look || { x: 0, y: 1 }
     const ex = r * 0.36, ey = -r * 0.18
     if (rt?.asleep) {
@@ -178,7 +181,6 @@ export default defineEntity({
         out.push({ k: 'circle', layer, x: x + s * ex + look.x * r * 0.12, y: y + ey + look.y * r * 0.12, r: r * 0.15, fill: '#20140d' })
       }
     }
-    if (alpha < 1) for (const sh of out.slice(bodyFrom)) sh.opacity = (sh.opacity ?? 1) * alpha
     return out
   },
 

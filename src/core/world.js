@@ -45,6 +45,19 @@ export class EntityContext {
   // как у сигналов, поэтому типы сущностей друг другу по-прежнему не видны.
   shared(name, factory) { return this.world.shared(name, factory, this.id) }
   get frame() { return this.world.frame }
+
+  // Координаты из data — в координатах родителя. Эти три метода переводят их
+  // в мировые; у сущности без родителя они ничего не меняют.
+  place(x, y) {
+    const m = this._inst.xform
+    return [m.c * x - m.s * y + m.x, m.s * x + m.c * y + m.y]
+  }
+  dir(x, y) {
+    const m = this._inst.xform
+    return [m.c * x - m.s * y, m.s * x + m.c * y]
+  }
+  placePoints(pts) { return pts.map(([x, y]) => this.place(x, y)) }
+  get angle() { const m = this._inst.xform; return Math.atan2(m.s, m.c) }
   get points() { return this.world.physics.points }
   get links() { return this.world.physics.links }
 
@@ -178,6 +191,22 @@ export class EntityContext {
   }
 }
 
+// Накопленная система координат сущности: world = R·local + t.
+// У дочерней она равна произведению переносов всех предков, поэтому данные
+// сущности всегда читаются как координаты «от родителя».
+const IDENT = { c: 1, s: 0, x: 0, y: 0 }
+const composeX = (m2, m1) => ({
+  c: m2.c * m1.c - m2.s * m1.s,
+  s: m2.s * m1.c + m2.c * m1.s,
+  x: m2.c * m1.x - m2.s * m1.y + m2.x,
+  y: m2.s * m1.x + m2.c * m1.y + m2.y,
+})
+const asMatrix = (t) => ({
+  c: t.co, s: t.si,
+  x: t.bx - (t.co * t.ax - t.si * t.ay),
+  y: t.by - (t.si * t.ax + t.co * t.ay),
+})
+
 // набор опорных координат сущности: точки + вершины её коллайдеров
 function frameOf(inst) {
   const out = []
@@ -205,7 +234,7 @@ function transformOf(prev, cur) {
   return { ax, ay, bx, by, co: Math.cos(th), si: Math.sin(th) }
 }
 
-function applyTransform(inst, t) {
+function applyTransform(inst, t, dt = 1 / 60) {
   const carryPoints = !inst.bound
   const map = (x, y) => {
     const dx = x - t.ax, dy = y - t.ay
@@ -215,13 +244,18 @@ function applyTransform(inst, t) {
     for (const p of inst.ctx.owned.points) {
       const [x, y] = map(p.x, p.y)
       const [rx, ry] = map(p.px, p.py)
+      // закреплённую точку физика не двигает, поэтому её скорость сообщаем явно
+      p.kx = (x - p.x) / dt
+      p.ky = (y - p.y) / dt
       p.x = x; p.y = y; p.px = rx; p.py = ry
     }
   }
   for (const c of inst.ctx.owned.colliders) {
     if (c.dynamic) continue // живая геометрия и так следует за своими точками
-    for (const q of c.points) { const [x, y] = map(q[0], q[1]); q[0] = x; q[1] = y }
-    c.bbox = bboxOfPoints(c.points)
+    for (const ring of c.rings || [c.points]) {
+      for (const q of ring) { const [x, y] = map(q[0], q[1]); q[0] = x; q[1] = y }
+    }
+    c.bbox = bboxOfPoints(c.rings ? c.rings.flat() : c.points)
   }
 }
 
@@ -289,6 +323,7 @@ export class World {
       data: structuredClone(data ?? def.defaults()),
       rt: null,
     }
+    inst.xform = { ...IDENT }
     inst.ctx = new EntityContext(this, inst)
     inst.rt = (def.spawn ? def.spawn(inst.ctx, inst.data) : null) || {}
     inst.frame = frameOf(inst)
@@ -316,18 +351,21 @@ export class World {
       inst.def.update?.(inst.rt, inst.ctx, dt, inst.data)
     }
     this.physics.step(dt)
-    this._carry()
+    this._carry(dt)
   }
 
   // Дочерние сущности едут вместе с родительскими: берём сдвиг и поворот
   // родителя за кадр и применяем к геометрии ребёнка. Мир при этом не знает,
   // что за сущности он таскает — только их точки и коллайдеры.
-  _carry() {
+  _carry(dt) {
     const order = [...this.instances].sort((a, b) => depth(a, this) - depth(b, this))
     const deltas = new Map()
     for (const inst of order) {
       const t = inst.parent ? deltas.get(inst.parent) : null
-      if (t) applyTransform(inst, t)
+      if (t) {
+        applyTransform(inst, t, dt)
+        inst.xform = composeX(asMatrix(t), inst.xform)
+      }
       // полное перемещение за кадр = собственное плюс унаследованное
       deltas.set(inst.id, transformOf(inst.frame, frameOf(inst)))
       inst.frame = frameOf(inst)

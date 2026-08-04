@@ -64,7 +64,7 @@ export default defineEntity({
     }
   },
 
-  shapes(data, rt) {
+  shapes(data, rt, ctx) {
     const out = []
     const air = rt?.air || { x: data.ax, y: data.ay }
     const speed = Math.hypot(air.x, air.y) || 1
@@ -80,7 +80,7 @@ export default defineEntity({
       }
     }
     // значок в редакторе и указатель текущего направления
-    const x = data.x, y = data.y
+    const [x, y] = ctx ? ctx.place(data.x, data.y) : [data.x, data.y]
     out.push({ k: 'circle', x, y, r: 22, fill: 'none', stroke: data.color, sw: 2, opacity: 0.5, dash: '4 5' })
     out.push({
       k: 'line', x1: x, y1: y,

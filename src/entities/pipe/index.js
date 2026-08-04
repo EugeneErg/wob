@@ -21,7 +21,7 @@ export default defineEntity({
   }),
 
   spawn(ctx, data) {
-    const [mx, my] = data.points[0] || [0, 0]
+    const [mx, my] = ctx.place(...(data.points[0] || [0, 0]))
     const mouth = ctx.addPoint({
       x: mx, y: my,
       radius: data.radius,
@@ -57,15 +57,16 @@ export default defineEntity({
     }
   },
 
-  shapes(data, rt) {
+  shapes(data, rt, ctx) {
     if (data.points.length < 2) return []
-    const [mx, my] = data.points[0]
+    const pts = ctx ? ctx.placePoints(data.points) : data.points
+    const [mx, my] = rt?.mouth ? [rt.mouth.x, rt.mouth.y] : pts[0]
     const r = data.radius
     const active = !!rt?.link
     const out = [
-      { k: 'poly', pts: data.points, stroke: data.color, sw: r * 2, cap: 'round', join: 'round' },
-      { k: 'poly', pts: data.points, stroke: data.inner, sw: r * 2 - 10, cap: 'round', join: 'round' },
-      { k: 'poly', pts: data.points, stroke: active ? '#8fe0ff' : '#2f5c78', sw: 6, cap: 'round', join: 'round', dash: '14 16', class: active ? 'flow' : '' },
+      { k: 'poly', pts, stroke: data.color, sw: r * 2, cap: 'round', join: 'round' },
+      { k: 'poly', pts, stroke: data.inner, sw: r * 2 - 10, cap: 'round', join: 'round' },
+      { k: 'poly', pts, stroke: active ? '#8fe0ff' : '#2f5c78', sw: 6, cap: 'round', join: 'round', dash: '14 16', class: active ? 'flow' : '' },
       { k: 'circle', x: mx, y: my, r, fill: 'none', stroke: data.color, sw: 6 },
       { k: 'circle', x: mx, y: my, r: r - 6, fill: data.inner },
     ]

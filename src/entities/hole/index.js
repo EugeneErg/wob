@@ -28,6 +28,7 @@ function cup(data) {
 }
 
 const socket = (data) => ({ x: data.x, y: data.y + data.depth + data.r * 0.25 })
+const pos = (ctx, p) => { if (!ctx) return p; const [x, y] = ctx.place(p.x, p.y); return { x, y } }
 
 export default defineEntity({
   type: 'hole',
@@ -47,7 +48,7 @@ export default defineEntity({
 
   spawn(ctx, data) {
     const c = ctx.addCollider({
-      points: cup(data),
+      points: ctx.placePoints(cup(data)),
       smoothness: 0.12,     // шершавые стенки — шар не выкатывается
       restitution: 0.02,    // и не отскакивает
     })
@@ -55,7 +56,7 @@ export default defineEntity({
   },
 
   update(rt, ctx, dt, data) {
-    const s = socket(data)
+    const s = rt.socket || (rt.socket = pos(ctx, socket(data)))
     const hold = ctx.nearest(s, (p) => {
       if (!p.collision.world) return false
       // тютелька в тютельку: чужой размер в лунку не считается
@@ -71,11 +72,11 @@ export default defineEntity({
     if (data.counts) ctx.emit(EVENTS.progress, { delta: rt.reported ? 1 : -1 })
   },
 
-  shapes(data, rt) {
-    const s = socket(data)
+  shapes(data, rt, ctx) {
+    const s = rt?.socket || pos(ctx, socket(data))
     const on = !!rt?.reported
     const out = [
-      { k: 'poly', pts: cup(data), closed: true, fill: data.color, stroke: '#28323a', sw: 3, join: 'round' },
+      { k: 'poly', pts: rt?.c ? rt.c.points : (ctx ? ctx.placePoints(cup(data)) : cup(data)), closed: true, fill: data.color, stroke: '#28323a', sw: 3, join: 'round' },
       { k: 'circle', x: s.x, y: s.y, r: data.r * 0.9, fill: 'none', stroke: on ? data.glow : '#28323a', sw: 2.5, opacity: on ? 0.9 : 0.55 },
     ]
     if (on) out.push({ k: 'circle', x: s.x, y: s.y, r: data.r * 1.5, fill: 'none', stroke: data.glow, sw: 2, opacity: 0.4, class: 'pulse' })

@@ -69,12 +69,13 @@ export default defineEntity({
       }
     }
 
-    // а струю вливает каждый, за себя
-    const ang = (data.angle || 0) * RAD
-    inject(f, data.x, data.y, Math.cos(ang), Math.sin(ang), data.nozzle, data.power * 6 * dt, 1)
+    // а струю вливает каждый, за себя — в своих координатах
+    const ang = (data.angle || 0) * RAD + ctx.angle
+    const [fx, fy] = ctx.place(data.x, data.y)
+    inject(f, fx, fy, Math.cos(ang), Math.sin(ang), data.nozzle, data.power * 6 * dt, 1)
   },
 
-  shapes(data, rt) {
+  shapes(data, rt, ctx) {
     const out = []
     // поток общий, поэтому рисует его тот, кто первым дошёл до отрисовки в кадре
     const air = rt?.air
@@ -102,10 +103,11 @@ export default defineEntity({
     }
 
     // корпус
-    const a = (data.angle || 0) * RAD
+    const a = (data.angle || 0) * RAD + (ctx?.angle ?? 0)
     const nx = Math.cos(a), ny = Math.sin(a)
     const tx = -ny, ty = nx
-    const x = data.x, y = data.y, r = data.nozzle
+    const [x, y] = ctx ? ctx.place(data.x, data.y) : [data.x, data.y]
+    const r = data.nozzle
     out.push({
       k: 'poly', closed: true,
       pts: [

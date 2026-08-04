@@ -23,8 +23,7 @@
     <div class="map-wrap">
       <div
         ref="map" class="map" :style="coverStyle(ch?.image)"
-        @pointermove="onMove" @pointerup="onUp" @pointerleave="onUp"
-        @click="sel = null"
+        @pointerdown="onEmpty" @pointermove="onMove" @pointerup="onUp" @pointerleave="onUp"
       >
         <svg class="paths" viewBox="0 0 100 100" preserveAspectRatio="none">
           <line
@@ -40,7 +39,6 @@
           :class="{ done: isDone(n.levelId), locked: isLocked(n), sel: sel === n.levelId }"
           :style="{ left: n.x + '%', top: n.y + '%' }"
           @pointerdown.stop="onDown(n, $event)"
-          @click.stop="onClick(n, $event)"
           @dblclick.stop="mode === 'edit' && $emit('edit', n.levelId)"
         >
           <span class="dot" />
@@ -122,35 +120,43 @@ const isLocked = (n) => props.mode === 'play' && !lib.levelOpen(ch.value, n.leve
 
 const hint = computed(() => {
   if (props.mode === 'play') return 'Открытые уровни горят ярче. Пройдите уровень — появится тропинка к следующим.'
-  return 'Точки можно таскать. Клик — выбрать уровень, двойной клик — открыть его, Shift+клик по второй точке — тропинка между ними.'
+  return 'Клик по точке — меню уровня, двойной клик — открыть его сразу, перетаскивание — подвинуть, Shift+клик по второй точке — тропинка.'
 })
 
-// --- игра ---
-function onClick(n, e) {
-  if (props.mode === 'play') { if (!isLocked(n)) emit('play', n.levelId); return }
-  if (drag?.moved > 1) return
-  if (e.shiftKey && sel.value && sel.value !== n.levelId) { link(sel.value, n.levelId); return }
-  sel.value = n.levelId
+// Клик по точке разбираем сами: карта захватывает указатель ради перетаскивания,
+// а вместе с ним и событие click — до кнопки оно уже не доходит.
+function onDown(n, e) {
+  drag = { n, moved: 0, shift: e.shiftKey }
+  if (props.mode === 'edit') map.value.setPointerCapture?.(e.pointerId)
 }
 
-// --- редактор: перетаскивание точек ---
-function onDown(n, e) {
-  if (props.mode !== 'edit') return
-  drag = { n, moved: 0 }
-  map.value.setPointerCapture?.(e.pointerId)
-}
+function onEmpty() { drag = { empty: true, moved: 0 } }
+
 function onMove(e) {
   if (!drag) return
+  drag.moved++
+  if (!drag.n || props.mode !== 'edit') return
   const r = map.value.getBoundingClientRect()
   const x = ((e.clientX - r.left) / r.width) * 100
   const y = ((e.clientY - r.top) / r.height) * 100
-  drag.moved++
   drag.n.x = Math.max(2, Math.min(98, x))
   drag.n.y = Math.max(4, Math.min(96, y))
-  tick.value++
 }
+
 function onUp() {
-  if (drag) { lib.save(); drag = null }
+  const d = drag
+  drag = null
+  if (!d) return
+  const click = d.moved < 3          // почти не двигали — считаем кликом
+
+  if (d.empty) { if (click) sel.value = null; return }
+  if (props.mode !== 'edit') {
+    if (click && !isLocked(d.n)) emit('play', d.n.levelId)
+    return
+  }
+  if (!click) { lib.save(); return }
+  if (d.shift && sel.value && sel.value !== d.n.levelId) link(sel.value, d.n.levelId)
+  else sel.value = d.n.levelId
 }
 
 function link(a, b) {

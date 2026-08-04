@@ -136,7 +136,18 @@
             {{ f.label }}
             <em v-if="f.global" class="badge" title="Влияет на взаимодействие с миром">мир</em>
           </span>
-          <input v-if="f.type === 'bool'" type="checkbox" v-model="inspected.data[f.key]" />
+          <template v-if="f.type === 'list'">
+            <p v-if="f.note" class="sub">{{ f.note }}</p>
+            <p v-if="!(inspected.data[f.key] || []).length" class="sub">пока нечего настраивать</p>
+            <div v-for="(row, i) in inspected.data[f.key] || []" :key="i" class="listrow">
+              <span class="idx">{{ i + 1 }}</span>
+              <label v-for="sub in f.fields" :key="sub.key">
+                <span>{{ sub.label }}</span>
+                <input type="number" v-model.number="row[sub.key]" :min="sub.min" :max="sub.max" :step="sub.step" />
+              </label>
+            </div>
+          </template>
+          <input v-else-if="f.type === 'bool'" type="checkbox" v-model="inspected.data[f.key]" />
           <input v-else-if="f.type === 'color'" type="color" v-model="inspected.data[f.key]" />
           <input v-else-if="f.type === 'number'" type="number" v-model.number="inspected.data[f.key]" :min="f.min" :max="f.max" :step="f.step" />
           <template v-else-if="f.type === 'range'">
@@ -262,7 +273,7 @@ const inspected = computed(() => {
   if (sel.value.length === 1) return withDef(find(sel.value[0]))
   return null
 })
-const fields = computed(() => inspected.value?.def.editor.props?.() || [])
+const fields = computed(() => inspected.value?.def.editor.props?.(inspected.value.data) || [])
 
 // одинаковый тип + несколько выделенных + сущность умеет групповое действие
 const bulk = computed(() => {
@@ -666,6 +677,17 @@ function leave() { save(); emit('back') }
 .insp-head h3 { margin: 0; font-size: 15px; font-family: var(--font-display); letter-spacing: 0.02em; }
 .empty { color: var(--muted); font-size: 13px; line-height: 1.6; }
 .wide { width: 100%; margin-bottom: 12px; }
+.sub { margin: 0 0 6px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.listrow {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  background: #101a20; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px;
+}
+.listrow .idx {
+  font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+  min-width: 14px; text-align: right;
+}
+.listrow label { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); flex: 1; }
+.listrow input { width: 100%; min-width: 0; padding: 4px 6px !important; }
 .tip {
   margin: 0 0 14px; padding: 8px 10px; border-radius: 8px;
   background: rgba(111, 192, 234, 0.08); border: 1px solid rgba(111, 192, 234, 0.25);

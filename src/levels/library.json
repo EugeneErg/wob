@@ -2359,6 +2359,32 @@
     "show": true,
     "color": "#7fb6cc"
    }
+  },
+  {
+   "id": "as-rails",
+   "type": "rails",
+   "title": "Рельсы",
+   "data": {
+    "points": [
+     [
+      -160,
+      0
+     ],
+     [
+      160,
+      0
+     ]
+    ],
+    "closed": false,
+    "segs": [
+     {
+      "speed": 140,
+      "wait": 1
+     }
+    ],
+    "color": "#8d93a1",
+    "show": true
+   }
   }
  ]
 }

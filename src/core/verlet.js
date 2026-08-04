@@ -38,6 +38,7 @@ export class Physics {
       ax: 0, ay: 0,   // ускорение от сущностей (живёт весь кадр)
       fx: 0, fy: 0,   // сила от связей (пересчитывается каждый подшаг)
       cn: 0,          // сколько контакт вытолкнул за подшаг = нормальный импульс
+      kx: 0, ky: 0,   // скорость закреплённой точки, которую двигают снаружи (px/с)
       // глобальные свойства
       radius: o.radius ?? 8,
       mass,
@@ -389,8 +390,9 @@ export class Physics {
         let sx = 0, sy = 0
         if (c.dynamic) { // скорость самой поверхности в точке касания
           const a = c.verts[ct.i], b = c.verts[(ct.i + 1) % c.verts.length]
-          sx = (a.x - a.px) * (1 - ct.t) + (b.x - b.px) * ct.t
-          sy = (a.y - a.py) * (1 - ct.t) + (b.y - b.py) * ct.t
+          const va = this._vel(a), vb = this._vel(b)
+          sx = va.x * (1 - ct.t) + vb.x * ct.t
+          sy = va.y * (1 - ct.t) + vb.y * ct.t
         }
         const vx = p.x - p.px - sx, vy = p.y - p.py - sy
         const rest = (p.restitution + c.restitution) * 0.5
@@ -411,6 +413,15 @@ export class Physics {
         p.py = p.y - (nvn * ny + nvt * ty + sy)
       }
     }
+  }
+
+  // Скорость точки за подшаг. У закреплённой её нет в позициях: она приходит
+  // снаружи (платформа на рельсах, вращаемое тело) — иначе трения о движущуюся
+  // поверхность не возникает и груз остаётся стоять.
+  _vel(p) {
+    return p.pinned
+      ? { x: p.kx * this.fixed, y: p.ky * this.fixed }
+      : { x: p.x - p.px, y: p.y - p.py }
   }
 
   // Ближайшая точка границы и внешняя нормаль, если тело её касается
