@@ -1,6 +1,6 @@
 import { defineEntity } from '../../core/registry.js'
 import { LAYERS } from '../../core/globals.js'
-import { createField, markSolids, inject, step, sample } from './fluid.js'
+import { createField, markSolidsRows, inject, step, sample, cellVel } from './fluid.js'
 
 // Вентилятор. Поле течения одно на всех: первый по id вентилятор его заводит и
 // считает, остальные просто вливают в него свою струю через ctx.peers().
@@ -22,14 +22,14 @@ export default defineEntity({
     angle: -90,     // куда дует, градусы
     power: 520,     // скорость воздуха на срезе, px/с
     nozzle: 46,     // радиус горловины
-    cell: 26,       // размер клетки сетки
-    push: 6,        // сопротивление воздуха для тел
+    cell: 22,       // размер клетки сетки
+    push: 9,        // сопротивление воздуха для тел
     show: true,
     color: '#7fb6cc',
   }),
 
   spawn(ctx, data) {
-    return { air: null, spin: 0 }
+    return { air: null, spin: 0, seed: 0 }
   },
 
   update(rt, ctx, dt, data) {
@@ -42,7 +42,7 @@ export default defineEntity({
     const b = ctx.bounds
     const air = ctx.shared('air', () => ({
       field: createField(b.w, b.h, data.cell),
-      frame: -1, acc: 0, marks: 0, draw: -1,
+      frame: -1, acc: 0, row: 0, draw: -1, motes: [],
     }))
     rt.air = air
     const f = air.field
@@ -50,12 +50,20 @@ export default defineEntity({
     if (air.frame !== ctx.frame) {
       air.frame = ctx.frame
       air.acc += dt
-      if (air.marks % 30 === 0) markSolids(f, (x, y) => ctx.solidAt(x, y))
-      air.marks++
 
-      // течение считаем 30 раз в секунду: вдвое дешевле, на глаз не отличить
+      // Течение считаем 30 раз в секунду: вдвое дешевле, на глаз не отличить.
+      // Итераций хватает 16: Гаусс — Зейдель сходится вдвое быстрее Якоби,
+      // на 14 и на 30 расход через колено совпадает до десятых.
       if (air.acc >= 1 / 30) {
-        step(f, air.acc, { iters: 26, damping: 0.99 })
+        // Преграды перечитываем полосами: за четыре шага решателя сетка целиком
+        // свежая, но ни один кадр не платит за весь уровень. Это же чинит
+        // запаздывание после раскопок — прокопанный ход открывается почти сразу.
+        const band = Math.ceil(f.ny / 4)
+        markSolidsRows(f, (x, y) => ctx.solidAt(x, y), air.row, air.row + band)
+        air.row = (air.row + band) % f.ny
+
+        step(f, air.acc, { iters: 16, damping: 0.995 })
+        moveMotes(air, f, air.acc, b)
         air.acc = 0
       }
 
@@ -64,15 +72,24 @@ export default defineEntity({
         if (p.pinned || !p.collision.world) continue
         const a = sample(f, p.x, p.y)
         const vx = (p.x - p.px) * 120, vy = (p.y - p.py) * 120
-        const k = (data.push * p.radius) / (13 * p.mass)
-        ctx.applyAccel(p, (a.x - vx) * k, (a.y - vy) * k)
+        const rx = a.x - vx, ry = a.y - vy
+        // Напор растёт с квадратом скорости: слабый ветерок только шевелит,
+        // сильный — двигает. Линейный закон делал сильный вентилятор почти
+        // таким же бесполезным, как слабый.
+        const rel = Math.hypot(rx, ry)
+        const k = (data.push * p.radius * (0.35 + rel / 700)) / (13 * p.mass)
+        ctx.applyAccel(p, rx * k, ry * k)
       }
     }
 
     // а струю вливает каждый, за себя — в своих координатах
     const ang = (data.angle || 0) * RAD + ctx.angle
     const [fx, fy] = ctx.place(data.x, data.y)
-    inject(f, fx, fy, Math.cos(ang), Math.sin(ang), data.nozzle, data.power * 6 * dt, 1)
+    const nx = Math.cos(ang), ny = Math.sin(ang)
+    inject(f, fx, fy, nx, ny, data.nozzle, data.power * 6 * dt, 1)
+
+    // и подсевает в общий поток свои пылинки — по ним видно, куда он идёт
+    if (data.show) seedMotes(rt, air, dt, data, fx, fy, nx, ny)
   },
 
   shapes(data, rt, ctx) {
@@ -82,21 +99,39 @@ export default defineEntity({
     const f = air && air.draw !== air.frame ? air.field : null
     if (f && data.show) {
       air.draw = air.frame
-      const stepCell = 2
-      for (let j = 0; j < f.ny; j += stepCell) {
-        for (let i = 0; i < f.nx; i += stepCell) {
-          const k = i + j * f.nx
-          if (f.solid[k]) continue
-          const sx = f.u[k], sy = f.v[k]
-          const sp = Math.hypot(sx, sy)
-          if (sp < 30) continue
+
+      // Пылинки: их несёт то же поле, что и тела. Поэтому видно не «где поток»,
+      // а как он идёт — как заворачивает за угол, как отражается от преграды,
+      // как ускоряется в узком месте. Хвост рисуем по последнему следу, так что
+      // длина штриха сама показывает скорость.
+      for (const m of air.motes) {
+        const sp = Math.hypot(m.vx, m.vy)
+        if (sp < 12) continue
+        const fade = Math.min(1, m.life * 2.5) * Math.min(1, (m.max - m.life) * 1.2)
+        out.push({
+          k: 'line', layer: LAYERS.midground,
+          x1: m.px, y1: m.py, x2: m.x, y2: m.y,
+          stroke: m.color || data.color, sw: 2.2, cap: 'round',
+          opacity: Math.min(0.85, 0.15 + sp / 700) * fade,
+        })
+      }
+
+      // и бледная «шерсть» поля под ними — чтобы читалась общая картина
+      const stepCell = 3
+      for (let j = 1; j < f.ny; j += stepCell) {
+        for (let i = 1; i < f.nx; i += stepCell) {
+          if (f.solid[i + j * f.nx]) continue
+          const s2 = cellVel(f, i, j)
+          const sp = Math.hypot(s2.x, s2.y)
+          if (sp < 40) continue
           const cx = (i + 0.5) * f.cell, cy = (j + 0.5) * f.cell
-          const len = Math.min(f.cell * 1.8, sp * 0.05)
+          const len = Math.min(f.cell * 1.6, sp * 0.035)
           out.push({
             k: 'line', layer: LAYERS.midground,
-            x1: cx, y1: cy, x2: cx + (sx / sp) * len, y2: cy + (sy / sp) * len,
-            stroke: data.color, sw: 2, cap: 'round',
-            opacity: Math.min(0.55, 0.12 + sp / 900),
+            x1: cx - (s2.x / sp) * len * 0.5, y1: cy - (s2.y / sp) * len * 0.5,
+            x2: cx + (s2.x / sp) * len * 0.5, y2: cy + (s2.y / sp) * len * 0.5,
+            stroke: data.color, sw: 1.4, cap: 'round',
+            opacity: Math.min(0.3, 0.05 + sp / 2600),
           })
         }
       }
@@ -160,3 +195,45 @@ export default defineEntity({
     ],
   },
 })
+
+// --- пылинки ---------------------------------------------------------------
+// Общие для всех вентиляторов, живут в общей среде рядом с полем. Сами по себе
+// ни на что не влияют: это чистая визуализация, но движутся они ровно по тому
+// полю, которое толкает тела, — поэтому не врут.
+
+const MAX_MOTES = 220
+
+function seedMotes(rt, air, dt, data, fx, fy, nx, ny) {
+  const want = Math.max(0, Math.min(26, Math.round(data.power / 40)))
+  rt.seed += want * dt * 3
+  while (rt.seed >= 1 && air.motes.length < MAX_MOTES) {
+    rt.seed -= 1
+    // рассыпаем по срезу горловины, поперёк направления
+    const t = (Math.random() * 2 - 1) * data.nozzle * 0.85
+    const x = fx - ny * t + nx * data.nozzle * 0.2
+    const y = fy + nx * t + ny * data.nozzle * 0.2
+    air.motes.push({
+      x, y, px: x, py: y, vx: nx * data.power, vy: ny * data.power,
+      life: 0, max: 1.6 + Math.random() * 1.8, color: data.color,
+    })
+  }
+}
+
+function moveMotes(air, f, dt, b) {
+  const live = []
+  for (const m of air.motes) {
+    m.life += dt
+    const a = sample(f, m.x, m.y)
+    // пылинка догоняет поток, а не прыгает в него: движение выходит плавным
+    m.vx += (a.x - m.vx) * Math.min(1, dt * 12)
+    m.vy += (a.y - m.vy) * Math.min(1, dt * 12)
+    m.px = m.x; m.py = m.y
+    m.x += m.vx * dt
+    m.y += m.vy * dt
+    const i = Math.floor(m.x / f.cell), j = Math.floor(m.y / f.cell)
+    const out = m.x < b.x || m.x > b.x + b.w || m.y < b.y || m.y > b.y + b.h
+    const stuck = i >= 0 && j >= 0 && i < f.nx && j < f.ny && f.solid[i + j * f.nx]
+    if (m.life < m.max && !out && !stuck && Math.hypot(m.vx, m.vy) > 6) live.push(m)
+  }
+  air.motes = live
+}

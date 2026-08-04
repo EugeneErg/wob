@@ -6,10 +6,16 @@ import { clamp, closestOnSegment, insideRegion, ringsOf, bboxOfRings } from './g
 let UID = 1
 const nid = (p) => p + UID++
 
+// Во сколько раз сопротивление качению меньше трения скольжения при той же
+// шершавости. У катка по грунту это примерно одна десятая, у стального шара
+// по стали — на два порядка меньше; берём середину и позволяем гладкости
+// поверхности развести эти случаи.
+const ROLL_RESIST = 0.08
+
 export class Physics {
   constructor(opts = {}) {
     this.gravity = { x: 0, y: 1800, ...(opts.gravity || {}) }
-    this.damping = opts.damping ?? 0.998
+    this.damping = opts.damping ?? 0.9994      // сопротивление среды
     this.iterations = opts.iterations ?? 3
     this.fixed = 1 / 120
     this.maxSub = 8
@@ -51,6 +57,14 @@ export class Physics {
       },
       attachable: o.attachable ?? false,   // можно ли прилепить связь
       suction: o.suction ?? 0,             // всасывание
+      // Точка — это диск радиуса radius, а у диска есть момент инерции ½mr².
+      // Поэтому трение её крутит: spin — угловая скорость (рад за подшаг),
+      // angle — накопленный поворот. Отдельного «умеет катиться» нет: катится
+      // всё круглое. Не крутится в одиночку только вершина жёсткого тела —
+      // за её вращение отвечает само тело (см. rigid).
+      spin: 0,
+      angle: 0,
+      rigid: 0,   // в скольких жёстких телах состоит: пока состоит — сама не крутится
       pinned: !!o.pinned,
       gravityScale,
       owner: o.owner || null,              // id инстанса-владельца
@@ -79,6 +93,10 @@ export class Physics {
     p.mass = Math.max(Math.abs(m), 0.05)
     p.gravityScale = p.lift ? -1 : 1
   }
+
+  // Вращение можно задать снаружи: живое тело держит себя само — ползущий шар
+  // упирается и не катится, хотя круглый. Это его дело, а не свойство физики.
+  setSpin(p, w) { p.spin = w * this.fixed }
 
   // ---- связи ---------------------------------------------------------------
   addLink(a, b, o = {}) {
@@ -125,6 +143,7 @@ export class Physics {
       stiffness: clamp(o.stiffness ?? 1, 0, 1),
       removed: false,
     }
+    for (const p of verts) p.rigid++
     this.bodies.push(b)
     return b
   }
@@ -132,7 +151,7 @@ export class Physics {
   // Прирастить точки к телу: их текущее расположение становится частью формы
   attachToBody(b, points) {
     if (!b || !points.length) return
-    for (const p of points) if (!b.verts.includes(p)) { b.verts.push(p); p.pinned = false }
+    for (const p of points) if (!b.verts.includes(p)) { b.verts.push(p); p.pinned = false; p.rigid++ }
     let cx = 0, cy = 0, m = 0
     for (const p of b.verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
     if (!m) return
@@ -142,6 +161,7 @@ export class Physics {
 
   detachFromBody(b, points) {
     if (!b) return
+    for (const p of points) if (b.verts.includes(p) && p.rigid > 0) p.rigid--
     const keep = b.verts.map((p, i) => [p, b.rest[i]]).filter(([p]) => !points.includes(p))
     b.verts = keep.map((x) => x[0])
     b.rest = keep.map((x) => x[1])
@@ -149,6 +169,7 @@ export class Physics {
 
   removeBody(b) {
     if (!b) return
+    for (const p of b.verts) if (p.rigid > 0) p.rigid--
     b.removed = true
     const i = this.bodies.indexOf(b); if (i >= 0) this.bodies.splice(i, 1)
   }
@@ -257,6 +278,12 @@ export class Physics {
     // 3. скорость: трение и отскок в контактах, гашение вдоль связей
     this._contactVelocity()
     this._dampLinks()
+
+    // 3a. накопленный поворот — чтобы вращение было видно на экране
+    for (const p of this.points) {
+      if (p.rigid || p.pinned) { p.spin = 0; continue }
+      p.angle += p.spin
+    }
 
     // 4. натяжение = сила в связи; сглаживаем, чтобы не рвать от случайного всплеска
     let broken = null
@@ -407,8 +434,37 @@ export class Physics {
         // пропорциональная нормальному импульсу. Сам импульс берём из позиционной
         // коррекции — к этому месту нормальная скорость уже погашена ею же.
         const j = p.cn + (vn < 0 ? -vn * (1 + rest) : 0)
-        const drop = Math.min(Math.abs(vt), mu * j)
-        const nvt = vt - Math.sign(vt) * drop
+        let nvt
+        if (!p.rigid && p.radius > 1e-3) {
+          // Свободный диск катится. Трение действует не на центр, а на точку касания:
+          // проскальзывание там равно vt − ω·r. Импульс J меняет и скорость (J/m),
+          // и вращение (−J·r/I); для диска I = ½mr², поэтому проскальзывание
+          // убывает втрое быстрее скорости центра. Пока сцепления хватает, оно
+          // обнуляется — дальше шар катится без потерь и несёт инерцию по дуге.
+          const slip = vt - p.spin * p.radius
+          const sg = slip < 0 ? -1 : slip > 0 ? 1 : 0
+          const dv = Math.min(Math.abs(slip) / 3, mu * j)
+          nvt = vt - sg * dv
+          p.spin += (sg * dv * 2) / p.radius
+
+          // Сопротивление качению. Шар и опора мнутся в пятне контакта, и
+          // отпускает она его позади центра — получается тормозящий момент.
+          // Он тем больше, чем мягче и шершавее поверхность, то есть та же
+          // гладкость, что задаёт скольжение: по льду катится долго, по песку
+          // встаёт быстро. Считается относительно самой опоры, поэтому на
+          // едущей платформе оно не тормозит груз, а постепенно разгоняет его
+          // до её скорости. Тормозит ход и вращение сразу, поэтому качение
+          // не срывается в проскальзывание.
+          const brake = Math.min(Math.abs(nvt), mu * ROLL_RESIST * j)
+          if (brake > 0) {
+            const rs = nvt < 0 ? -1 : 1
+            nvt -= rs * brake
+            p.spin -= (rs * brake) / p.radius
+          }
+        } else {
+          const drop = Math.min(Math.abs(vt), mu * j)
+          nvt = vt - Math.sign(vt) * drop
+        }
         p.px = p.x - (nvn * nx + nvt * tx + sx)
         p.py = p.y - (nvn * ny + nvt * ty + sy)
       }

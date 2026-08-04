@@ -83,8 +83,11 @@ export default defineEntity({
       for (const l of p.links) l.visible = false
       return
     }
-    if (rt.state === 'drag') return
+    // Живой шар держит себя сам: он круглый, но упирается и не катится.
+    // Это не свойство физики, а то, что он делает — как всякое живое тело.
+    if (rt.state === 'drag') { ctx.setSpin(p, 0); return }
     if (rt.state === 'built') {
+      ctx.setSpin(p, 0)
       if (p.links.length === 0) { rt.state = 'free'; p.pinned = false }
       return
     }
@@ -358,6 +361,8 @@ function roam(rt, ctx, dt, data) {
   p.pinned = false
   if (p.lift) return drift(rt, ctx, dt, data)
   const grounded = Math.abs(p.y - p.py) < 1.2
+  // упёрся ногами — не катится; оторвался от земли — крутится как все
+  if (grounded) ctx.setSpin(p, 0)
   const target = ctx.nearest(p, (q) => q !== p && q.attachable && q.links.length > 0)
 
   if (target) {

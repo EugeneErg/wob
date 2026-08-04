@@ -66,6 +66,18 @@ export default defineEntity({
 
     out.push({ k: 'circle', x, y, r, fill: data.color, stroke: '#2b2519', sw: 3 })
     out.push({ k: 'circle', x, y, r: r * 0.42, fill: '#2b2519', opacity: data.static ? 1 : 0.25 })
+    // насечка по углу поворота: без неё катящийся шар неотличим от скользящего
+    if (!data.static) {
+      const a = rt?.p ? rt.p.angle : 0
+      for (const s of [0, Math.PI * 0.5]) {
+        out.push({
+          k: 'line',
+          x1: x + Math.cos(a + s) * r * 0.42, y1: y + Math.sin(a + s) * r * 0.42,
+          x2: x + Math.cos(a + s) * r * 0.92, y2: y + Math.sin(a + s) * r * 0.92,
+          stroke: '#2b2519', sw: 2.5, cap: 'round', opacity: 0.55,
+        })
+      }
+    }
     if (data.static) {
       for (let i = 0; i < 4; i++) {
         const a = (Math.PI / 2) * i + Math.PI / 4

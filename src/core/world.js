@@ -11,7 +11,7 @@ export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toStrin
 export const CONTEXT_MUTATORS = [
   'setSignal', 'shared',
   'addPoint', 'addLink', 'addCollider', 'addBody',
-  'removePoint', 'removeLink', 'removeCollider', 'setRegion', 'applyAccel', 'setMass',
+  'removePoint', 'removeLink', 'removeCollider', 'setRegion', 'applyAccel', 'setMass', 'setSpin',
   'emit', 'despawnSelf', 'destroy',
 ]
 
@@ -90,6 +90,8 @@ export class EntityContext {
   removeLink(l) { this.world.physics.removeLink(l) }
   applyAccel(p, ax, ay) { this.world.physics.applyAccel(p, ax, ay) }
   setMass(p, m) { this.world.physics.setMass(p, m) }
+  // угловая скорость точки, рад/с: живое тело может держать себя от вращения
+  setSpin(p, w) { this.world.physics.setSpin(p, w) }
 
   // --- запросы к миру -------------------------------------------------------
   query(pred) { return this.world.physics.points.filter(pred) }
@@ -120,7 +122,11 @@ export class EntityContext {
 
   // Есть ли в этой точке твёрдая статика — сущности этим щупают землю
   solidAt(x, y) {
-    for (const c of this.world.physics.colliders) if (insideRegion(x, y, c.polys)) return true
+    for (const c of this.world.physics.colliders) {
+      const b = c.bbox
+      if (b && (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h)) continue
+      if (insideRegion(x, y, c.polys)) return true
+    }
     return false
   }
 
