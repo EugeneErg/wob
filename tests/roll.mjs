@@ -74,7 +74,7 @@ console.log('\n=== вентилятор гонит шар по прокопан�
 for (const power of [0, 300, 520, 900]) {
   const w = world([
     { id: 'sand', type: 'sand', data: { points: [[300, 400], [1400, 400], [1400, 850], [300, 850]], polys: null, dig: 30, smoothness: 0.25, fill: '#c9a86a', edge: '#8a6f3e' } },
-    { id: 'f', type: 'fan', data: { x: 350, y: 600, angle: 0, power, nozzle: 40, cell: 22, push: 9, show: true, color: '#7fb6cc' } },
+    { id: 'f', type: 'fan', data: { x: 350, y: 600, angle: 0, power, nozzle: 40, cell: 22, push: 16, show: true, color: '#7fb6cc' } },
     ball(900, 200),
   ])
   w.pointerDown({ x: 320, y: 600 })

@@ -3,7 +3,7 @@ import { World } from '../src/core/world.js'
 import { sample } from '../src/entities/fan/fluid.js'
 
 const ground = (y = 860) => ({ id: 'g', type: 'terrain', data: { points: [[0, y], [1600, y], [1600, 900], [0, 900]], smoothness: 0.5, fill: '#2a3326', edge: '#66804f' } })
-const fan = (id, x, y, angle, power = 520) => ({ id, type: 'fan', data: { x, y, angle, power, nozzle: 46, cell: 22, push: 9, show: true, color: '#7fb6cc' } })
+const fan = (id, x, y, angle, power = 520) => ({ id, type: 'fan', data: { x, y, angle, power, nozzle: 46, cell: 22, push: 16, show: true, color: '#7fb6cc' } })
 const goo = (id, x, y) => ({ id, type: 'game-ball', data: { x, y, r: 13, builtR: 13, sleepR: 13, mass: 1, builtMass: 1, sleepMass: 1, opacity: 1, anchorable: true, asleep: true, minLinks: 2, maxLinks: 3, range: 165, jump: 470, speed: 95, dropMax: 190, color: '#e2704a', linkColor: '#f0b48c' } })
 const wall = (id, x0, y0, x1, y1) => ({ id, type: 'terrain', data: { points: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], smoothness: 0.5, fill: '#2a3326', edge: '#66804f' } })
 
@@ -131,4 +131,26 @@ console.log('\n=== никто не главный: струи взаимодей
   const left = w2.instances.find((i) => i.type === 'fan')
   console.log(`  убрали один из двух: поле живо ${!!left.rt.air.field}, у оставшегося поток ` +
     `${speed(left.rt.air.field, 900, 700).toFixed(0)} px/с`)
+}
+
+console.log('\n=== вентилятор отвечает за свою струю, а не за всю среду ===')
+{
+  // Шар катится по земле в дальнем углу, вентилятор дует в другую сторону.
+  // Раньше в напор входила собственная скорость тела, и вентилятор тормозил
+  // шар там, где воздуха нет вовсе.
+  const roll = (entities) => {
+    const w = new World({ width: 1600, height: 900, gravity: { x: 0, y: 1800 }, entities })
+    const p = w.instances.find((i) => i.type === 'system-ball').rt.p
+    for (let i = 0; i < 30; i++) w.step(1 / 60)
+    p.px = p.x - 500 / 120           // толкнули на 500 px/с
+    const x0 = p.x
+    for (let i = 0; i < 60 * 4; i++) w.step(1 / 60)
+    return p.x - x0
+  }
+  const floor = { id: 'gg', type: 'terrain', data: { points: [[0, 700], [1600, 700], [1600, 900], [0, 900]], smoothness: 0.5, fill: '#2a3326', edge: '#66804f' } }
+  const b = { id: 'b', type: 'system-ball', data: { x: 200, y: 680, r: 18, static: false, links: [], color: '#d8cbb0', linkColor: '#b9ae95' } }
+  const alone = roll([floor, structuredClone(b)])
+  const withFan = roll([floor, structuredClone(b), fan('f', 1500, 300, -90)])
+  console.log(`  проехал ${alone.toFixed(0)} px без вентилятора и ${withFan.toFixed(0)} px с вентилятором в углу`)
+  console.log(`  разница ${(100 * Math.abs(withFan - alone) / alone).toFixed(1)}% — вентилятор вдали не тормозит`)
 }

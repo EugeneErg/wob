@@ -2354,8 +2354,8 @@
     "angle": -90,
     "power": 520,
     "nozzle": 46,
-    "cell": 26,
-    "push": 6,
+    "cell": 22,
+    "push": 16,
     "show": true,
     "color": "#7fb6cc"
    }

@@ -23,7 +23,7 @@ export default defineEntity({
     power: 520,     // скорость воздуха на срезе, px/с
     nozzle: 46,     // радиус горловины
     cell: 22,       // размер клетки сетки
-    push: 9,        // сопротивление воздуха для тел
+    push: 16,       // напор струи на тела
     show: true,
     color: '#7fb6cc',
   }),
@@ -67,18 +67,25 @@ export default defineEntity({
         air.acc = 0
       }
 
-      // сопротивление воздуха телам — тоже один раз за кадр
+      // Напор телам — тоже один раз за кадр. Это поток импульса движущегося
+      // воздуха: F ~ |a| · (a − v), где a — воздух, v — тело.
+      //
+      // Три свойства, и все нужны. По силе струи закон квадратичный, поэтому
+      // сильный вентилятор заметно сильнее слабого. При v = a сила ровно ноль,
+      // поэтому тело разгоняется до скорости воздуха и не дальше. И, главное,
+      // при a = 0 силы нет вовсе: вентилятор отвечает за свою струю, а не за
+      // всю среду. Раньше в множителе стояла |a − v|, куда входит собственная
+      // скорость тела, — и вентилятор в углу уровня тормозил шар на другом
+      // его конце, где воздуха не было. За среду отвечают общее гашение
+      // физики и сущность «ветер», а не вентилятор.
       for (const p of ctx.points) {
         if (p.pinned || !p.collision.world) continue
         const a = sample(f, p.x, p.y)
+        const air = Math.hypot(a.x, a.y)
+        if (air < 1) continue
         const vx = (p.x - p.px) * 120, vy = (p.y - p.py) * 120
-        const rx = a.x - vx, ry = a.y - vy
-        // Напор растёт с квадратом скорости: слабый ветерок только шевелит,
-        // сильный — двигает. Линейный закон делал сильный вентилятор почти
-        // таким же бесполезным, как слабый.
-        const rel = Math.hypot(rx, ry)
-        const k = (data.push * p.radius * (0.35 + rel / 700)) / (13 * p.mass)
-        ctx.applyAccel(p, rx * k, ry * k)
+        const k = (data.push * p.radius * air) / (6500 * p.mass)
+        ctx.applyAccel(p, (a.x - vx) * k, (a.y - vy) * k)
       }
     }
 
@@ -173,7 +180,7 @@ export default defineEntity({
       move(d, pt) { d.x = pt.x; d.y = pt.y },
       shapes: (d) => [{ k: 'circle', x: d.x, y: d.y, r: 46, fill: 'none', stroke: '#7fb6cc', sw: 2, dash: '5 5' }],
       finish: (d) => (d.ready
-        ? { x: d.x, y: d.y, angle: -90, power: 520, nozzle: 46, cell: 26, push: 6, show: true, color: '#7fb6cc' }
+        ? { x: d.x, y: d.y, angle: -90, power: 520, nozzle: 46, cell: 22, push: 16, show: true, color: '#7fb6cc' }
         : null),
     },
 
