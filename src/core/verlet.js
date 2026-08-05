@@ -2,6 +2,7 @@
 // Знает только о глобальных свойствах (см. core/globals.js) и ничего — о сущностях.
 
 import { clamp, closestOnSegment, insideRegion, ringsOf, bboxOfRings } from './geom.js'
+import { GravityField } from './field.js'
 
 let UID = 1
 const nid = (p) => p + UID++
@@ -14,7 +15,10 @@ const ROLL_RESIST = 0.08
 
 export class Physics {
   constructor(opts = {}) {
-    this.gravity = { x: 0, y: 1800, ...(opts.gravity || {}) }
+    // Гравитация — поле, а не вектор: однородная составляющая уровня плюс
+    // сколько угодно источников притяжения (см. core/field.js).
+    this.field = new GravityField({ x: 0, y: 1800, ...(opts.gravity || {}) })
+    this._g = { x: 0, y: 0 }
     this.damping = opts.damping ?? 0.9994      // сопротивление среды
     this.iterations = opts.iterations ?? 3
     this.fixed = 1 / 120
@@ -26,6 +30,17 @@ export class Physics {
     this.colliders = []
     this.bodies = []
   }
+
+  // Однородная составляющая поля. Раньше это была вся гравитация целиком,
+  // поэтому имя осталось прежним: уровень задаёт её одним вектором.
+  get gravity() { return this.field.uniform }
+  set gravity(v) { this.field.uniform = { x: v?.x || 0, y: v?.y || 0 } }
+
+  // ---- источники притяжения ------------------------------------------------
+  addWell(o) { return this.field.add(o) }
+  removeWell(w) { this.field.remove(w) }
+  // Ускорение свободного падения именно здесь — «низ» у каждой точки свой
+  gravityAt(x, y, out) { return this.field.at(x, y, out) }
 
   // ---- точки ---------------------------------------------------------------
   addPoint(o = {}) {
@@ -251,7 +266,7 @@ export class Physics {
   }
 
   _sub(dt) {
-    const g = this.gravity
+    const g = this._g
 
     // 1. предсказание: px хранит положение до шага и больше не трогается,
     //    поэтому любая позиционная коррекция сама становится изменением скорости
@@ -260,6 +275,8 @@ export class Physics {
       const vx = (p.x - p.px) * this.damping
       const vy = (p.y - p.py) * this.damping
       p.px = p.x; p.py = p.y
+      // поле спрашиваем в том месте, где точка сейчас: у каждой свой «низ»
+      this.field.at(p.x, p.y, g)
       p.x += vx + (g.x * p.gravityScale + p.ax) * dt * dt
       p.y += vy + (g.y * p.gravityScale + p.ay) * dt * dt
     }

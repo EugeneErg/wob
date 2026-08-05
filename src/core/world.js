@@ -10,8 +10,9 @@ export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toStrin
 // Всё, что меняет мир: в редакторе этого нет, отрисовка обязана быть чистой.
 export const CONTEXT_MUTATORS = [
   'setSignal', 'shared',
-  'addPoint', 'addLink', 'addCollider', 'addBody',
-  'removePoint', 'removeLink', 'removeCollider', 'setRegion', 'applyAccel', 'setMass', 'setSpin',
+  'addPoint', 'addLink', 'addCollider', 'addBody', 'addWell',
+  'removePoint', 'removeLink', 'removeCollider', 'removeWell',
+  'setRegion', 'applyAccel', 'setMass', 'setSpin',
   'emit', 'despawnSelf', 'destroy',
 ]
 
@@ -27,9 +28,14 @@ export class EntityContext {
     this._links = []
     this._colliders = []
     this._bodies = []
+    this._wells = []
   }
 
+  // Однородная составляющая поля — та, что задана уровню одним вектором
   get gravity() { return this.world.physics.gravity }
+  // Полное ускорение свободного падения в этом месте: однородная составляющая
+  // плюс все источники притяжения. Кто их поставил — не видно, как и положено.
+  gravityAt(x, y) { return this.world.physics.gravityAt(x, y, { x: 0, y: 0 }) }
   get time() { return this.world.time }
   get bounds() { return this.world.bounds }
   get pointer() { return this.world.pointer }
@@ -82,6 +88,18 @@ export class EntityContext {
     const b = this.world.physics.addBody(o)
     this._bodies.push(b)
     return b
+  }
+  // Источник притяжения: тело, вокруг которого искривляется «низ».
+  // Их вклады складываются — поле считает мир, а не сущность.
+  addWell(o) {
+    const w = this.world.physics.addWell({ ...o, owner: this.id })
+    this._wells.push(w)
+    return w
+  }
+  removeWell(w) {
+    this.world.physics.removeWell(w)
+    const i = this._wells.indexOf(w)
+    if (i >= 0) this._wells.splice(i, 1)
   }
   removePoint(p) { this.world.physics.removePoint(p) }
   removeCollider(c) { this.world.physics.removeCollider(c) }
@@ -185,10 +203,12 @@ export class EntityContext {
 
   // Что сущность создала. Мир пользуется этим сам (перенос, сборки, уборка),
   // сущностям поле не нужно.
-  get owned() { return { points: this._points, links: this._links, colliders: this._colliders, bodies: this._bodies } }
+  get owned() { return { points: this._points, links: this._links, colliders: this._colliders, bodies: this._bodies, wells: this._wells } }
 
   destroy() {
     this.world.releaseShared(this.id)
+    for (const w of this._wells) this.world.physics.removeWell(w)
+    this._wells = []
     for (const b of this._bodies) this.world.physics.removeBody(b)
     for (const l of this._links) this.world.physics.removeLink(l)
     for (const p of this._points) this.world.physics.removePoint(p)
@@ -218,6 +238,9 @@ function frameOf(inst) {
   const out = []
   for (const p of inst.ctx.owned.points) out.push(p.x, p.y)
   for (const c of inst.ctx.owned.colliders) for (const q of c.points) out.push(q[0], q[1])
+  // источник притяжения — тоже геометрия сущности: иначе у сущности без точек
+  // и коллайдеров не было бы своей системы координат и её нельзя было бы возить
+  for (const w of inst.ctx.owned.wells) out.push(w.x, w.y)
   return out
 }
 
@@ -263,6 +286,7 @@ function applyTransform(inst, t, dt = 1 / 60) {
     }
     c.bbox = bboxOfPoints(c.rings ? c.rings.flat() : c.points)
   }
+  for (const w of inst.ctx.owned.wells) { const [x, y] = map(w.x, w.y); w.x = x; w.y = y }
 }
 
 function depth(inst, world, guard = 0) {

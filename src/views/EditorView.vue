@@ -50,7 +50,11 @@
         <button class="btn ghost small" @click="leave">← Уровни</button>
         <input v-model="level.name" class="name" spellcheck="false" />
         <label class="field inline">Цель <input v-model.number="level.goal" type="number" min="1" class="mini" /></label>
-        <label class="field inline">Гравитация <input v-model.number="level.gravity.y" type="number" step="100" class="mini" /></label>
+        <label class="field inline" title="Однородная составляющая поля. Ноль — невесомость, если на уровне нет точек притяжения">
+          Гравитация
+          <input v-model.number="level.gravity.x" type="number" step="100" class="mini" />
+          <input v-model.number="level.gravity.y" type="number" step="100" class="mini" />
+        </label>
         <label class="field inline">Размер
           <input v-model.number="level.width" type="number" step="100" class="mini" />
           <input v-model.number="level.height" type="number" step="100" class="mini" />

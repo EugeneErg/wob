@@ -60,6 +60,11 @@
      "levelId": "lvl-hole",
      "x": 84,
      "y": 66
+    },
+    {
+     "levelId": "lvl-orbit",
+     "x": 52,
+     "y": 80
     }
    ],
    "edges": [
@@ -70,6 +75,10 @@
     {
      "from": "lvl-dig",
      "to": "lvl-hole"
+    },
+    {
+     "from": "lvl-hole",
+     "to": "lvl-orbit"
     }
    ],
    "hot": [
@@ -2072,7 +2081,7 @@
         900
        ]
       ],
-      "smoothness": 1.0,
+      "smoothness": 1,
       "fill": "#2f3a30",
       "edge": "#66804f"
      }
@@ -2099,7 +2108,7 @@
         900
        ]
       ],
-      "smoothness": 1.0,
+      "smoothness": 1,
       "fill": "#2f3a30",
       "edge": "#66804f"
      }
@@ -2132,6 +2141,408 @@
      }
     }
    ]
+  },
+  {
+   "id": "lvl-orbit",
+   "name": "Орбита",
+   "width": 1600,
+   "height": 900,
+   "gravity": {
+    "x": 0,
+    "y": 0
+   },
+   "goal": 5,
+   "entities": [
+    {
+     "id": "gw-planet",
+     "type": "gravity-well",
+     "data": {
+      "x": 620,
+      "y": 520,
+      "pull": 1700,
+      "radius": 200,
+      "falloff": 2,
+      "range": 0,
+      "solid": true,
+      "movable": false,
+      "signal": "",
+      "invert": false,
+      "lines": 14,
+      "smoothness": 0.4,
+      "color": "#8ea6ff",
+      "fill": "#2c3450"
+     }
+    },
+    {
+     "id": "gw-moon",
+     "type": "gravity-well",
+     "data": {
+      "x": 1280,
+      "y": 300,
+      "pull": 700,
+      "radius": 90,
+      "falloff": 2,
+      "range": 0,
+      "solid": true,
+      "movable": false,
+      "signal": "",
+      "invert": false,
+      "lines": 10,
+      "smoothness": 0.4,
+      "color": "#8ea6ff",
+      "fill": "#2c3450"
+     }
+    },
+    {
+     "id": "or-a1",
+     "type": "system-ball",
+     "data": {
+      "x": 818,
+      "y": 431,
+      "r": 17,
+      "static": true,
+      "links": [
+       "or-a2"
+      ],
+      "color": "#d8cbb0",
+      "linkColor": "#b9ae95"
+     }
+    },
+    {
+     "id": "or-a2",
+     "type": "system-ball",
+     "data": {
+      "x": 830,
+      "y": 464,
+      "r": 17,
+      "static": true,
+      "links": [
+       "or-a1"
+      ],
+      "color": "#d8cbb0",
+      "linkColor": "#b9ae95"
+     }
+    },
+    {
+     "id": "or-pipe",
+     "type": "pipe",
+     "data": {
+      "points": [
+       [
+        1189,
+        330
+       ],
+       [
+        1420,
+        140
+       ],
+       [
+        1600,
+        80
+       ]
+      ],
+      "radius": 30,
+      "power": 1,
+      "color": "#4c93c4",
+      "inner": "#0d1a24"
+     }
+    },
+    {
+     "id": "or-b0",
+     "type": "game-ball",
+     "data": {
+      "x": 536,
+      "y": 719,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b1",
+     "type": "game-ball",
+     "data": {
+      "x": 484,
+      "y": 688,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b2",
+     "type": "game-ball",
+     "data": {
+      "x": 443,
+      "y": 644,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b3",
+     "type": "game-ball",
+     "data": {
+      "x": 416,
+      "y": 590,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b4",
+     "type": "game-ball",
+     "data": {
+      "x": 404,
+      "y": 531,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b5",
+     "type": "game-ball",
+     "data": {
+      "x": 410,
+      "y": 471,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b6",
+     "type": "game-ball",
+     "data": {
+      "x": 431,
+      "y": 415,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b7",
+     "type": "game-ball",
+     "data": {
+      "x": 524,
+      "y": 747,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b8",
+     "type": "game-ball",
+     "data": {
+      "x": 465,
+      "y": 711,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b9",
+     "type": "game-ball",
+     "data": {
+      "x": 419,
+      "y": 661,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b10",
+     "type": "game-ball",
+     "data": {
+      "x": 387,
+      "y": 600,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b11",
+     "type": "game-ball",
+     "data": {
+      "x": 374,
+      "y": 533,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b12",
+     "type": "game-ball",
+     "data": {
+      "x": 380,
+      "y": 464,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    },
+    {
+     "id": "or-b13",
+     "type": "game-ball",
+     "data": {
+      "x": 405,
+      "y": 400,
+      "r": 13,
+      "mass": 1,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c",
+      "builtR": 13,
+      "builtMass": 1,
+      "anchorable": true
+     }
+    }
+   ],
+   "hot": []
   }
  ],
  "assets": [

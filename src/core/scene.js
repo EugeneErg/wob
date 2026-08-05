@@ -8,6 +8,9 @@ export function readOnlyContext(level, entity) {
   const ctx = {
     id: entity.id,
     gravity: level.gravity || { x: 0, y: 0 },
+    // В редакторе мира нет, поэтому поле — одна его однородная составляющая.
+    // Источники притяжения сущность и так знает по своим же данным (peers).
+    gravityAt: () => ({ x: (level.gravity || {}).x || 0, y: (level.gravity || {}).y || 0 }),
     time: 0,
     bounds: { x: 0, y: 0, w: level.width || 0, h: level.height || 0 },
     pointer: null,

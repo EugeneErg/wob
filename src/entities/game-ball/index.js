@@ -360,32 +360,53 @@ function roam(rt, ctx, dt, data) {
   const p = rt.p
   p.pinned = false
   if (p.lift) return drift(rt, ctx, dt, data)
-  const grounded = Math.abs(p.y - p.py) < 1.2
+
+  // «Низ» у шара не мировой, а свой: он там, куда тянет поле именно здесь.
+  // Всё дальше считается в этой опорной паре: dn — вниз, tg — вдоль опоры.
+  // Поэтому вокруг планеты шар ходит так же, как по ровной земле, и никакого
+  // отдельного «режима круглого мира» для этого не нужно.
+  const g = ctx.gravityAt(p.x, p.y)
+  const gm = Math.hypot(g.x, g.y)
+  // тянуть некуда — значит невесомость: ходить не по чему, шар плывёт
+  if (gm < 1) return drift(rt, ctx, dt, data)
+  const dn = { x: g.x / gm, y: g.y / gm }
+  const tg = { x: -dn.y, y: dn.x }
+  const along = (ax, ay) => ax * tg.x + ay * tg.y     // вдоль опоры, «вбок»
+  const under = (ax, ay) => ax * dn.x + ay * dn.y     // по «низу», вниз плюс
+
+  const vx = p.x - p.px, vy = p.y - p.py
+  const grounded = Math.abs(under(vx, vy)) < 1.2
   // упёрся ногами — не катится; оторвался от земли — крутится как все
   if (grounded) ctx.setSpin(p, 0)
   const target = ctx.nearest(p, (q) => q !== p && q.attachable && q.links.length > 0)
 
+  let side = 0, up = 0
   if (target) {
     const dx = target.x - p.x, dy = target.y - p.y
     const d = Math.hypot(dx, dy) || 1e-9
+    side = along(dx, dy); up = under(dx, dy)
     rt.look = { x: dx / d, y: dy / d }
-    if (rt.retreat <= 0 && Math.abs(dx) > p.radius * 1.5) rt.dir = Math.sign(dx)
+    if (rt.retreat <= 0 && Math.abs(side) > p.radius * 1.5) rt.dir = Math.sign(side)
 
     // дошёл — лезем по конструкции, но только по проходимым связям
     if (d < p.radius + target.radius + 10 && startClimb(rt, ctx, target)) return
   } else {
-    rt.look = { x: rt.dir, y: 0.25 }
+    rt.look = { x: tg.x * rt.dir + dn.x * 0.25, y: tg.y * rt.dir + dn.y * 0.25 }
   }
 
-  // щупаем землю перед собой
-  const foot = p.y + p.radius + 3
-  const ahead = p.x + rt.dir * (p.radius + 10)
-  const floor = ctx.solidAt(ahead, foot)
-  const wall = ctx.solidAt(p.x + rt.dir * (p.radius + 5), p.y - p.radius * 0.3)
+  // щупаем землю перед собой — тоже вдоль своей опоры
+  const step = p.radius + 10
+  const fx = p.x + tg.x * rt.dir * step + dn.x * (p.radius + 3)
+  const fy = p.y + tg.y * rt.dir * step + dn.y * (p.radius + 3)
+  const floor = ctx.solidAt(fx, fy)
+  const wall = ctx.solidAt(
+    p.x + tg.x * rt.dir * (p.radius + 5) - dn.x * p.radius * 0.3,
+    p.y + tg.y * rt.dir * (p.radius + 5) - dn.y * p.radius * 0.3,
+  )
   let drop = null
   if (!floor) {
     for (let d = 12; d <= (data.dropMax ?? 190); d += 12) {
-      if (ctx.solidAt(ahead, foot + d)) { drop = d; break }
+      if (ctx.solidAt(fx + dn.x * d, fy + dn.y * d)) { drop = d; break }
     }
   }
 
@@ -397,7 +418,7 @@ function roam(rt, ctx, dt, data) {
     if (rt.pause <= 0) rt.dir = -rt.dir   // постояли у края и развернулись
   } else if (grounded && !floor) {
     // за краем: спрыгнуть можно, если внизу есть дно и конструкция в той стороне
-    const toward = !target || Math.sign(target.x - p.x) === rt.dir
+    const toward = !target || Math.sign(side) === rt.dir
     if (!(drop !== null && toward)) {
       rt.pause = 0.35 + Math.random() * 0.3
       rt.retreat = 1.1 + Math.random() * 0.8   // отходим от края, потом вернёмся
@@ -408,24 +429,26 @@ function roam(rt, ctx, dt, data) {
   // Прыгаем только ради цели: без конструкции у стены просто разворачиваемся.
   if (wall && grounded && !target) rt.dir = -rt.dir
   if (target && grounded && rt.cd === 0) {
-    const dx = target.x - p.x
-    const above = target.y - p.y
-    const reached = Math.hypot(dx, above) <= p.radius + target.radius + 10
+    const reached = Math.hypot(side, up) <= p.radius + target.radius + 10
     // цель выше и до неё не дотянуться — пробуем допрыгнуть, даже если не выйдет
-    const under = Math.abs(dx) < Math.max(150, p.radius + target.radius + 70)
-    if (!reached && ((above < -20 && under) || wall)) {
-      p.py = p.y + (data.jump ?? 470) / 120
+    const near = Math.abs(side) < Math.max(150, p.radius + target.radius + 70)
+    if (!reached && ((up < -20 && near) || wall)) {
+      // прыжок — толчок против «низа», а не вверх по экрану
+      const j = (data.jump ?? 470) / 120
+      p.px = p.x + dn.x * j
+      p.py = p.y + dn.y * j
       rt.cd = 0.45 + Math.random() * 0.35
     }
   }
 
   // ход: в воздухе управляем слабее, скорость ограничена
-  const v = (p.x - p.px) * 120
+  const v = along(vx, vy) * 120
   const air = grounded ? 1 : 0.3
   const cap = data.speed ?? 95
   const push = go && Math.abs(v) < cap ? go * 1400 * air * gait(rt, ctx) : 0
   const brake = go === 0 && grounded ? -v * 6 : 0
-  ctx.applyAccel(p, push + brake, 0)
+  const f = push + brake
+  ctx.applyAccel(p, f * tg.x, f * tg.y)
 }
 
 // Летающий шар (отрицательный вес): плывёт к конструкции по прямой,
@@ -494,8 +517,9 @@ function walk(rt, ctx, dt, data) {
   p.px = p.x; p.py = p.y
   p.pinned = true
 
-  // но вес свой конструкции отдаём: концы связи получают его по долям
-  const g = ctx.gravity
+  // но вес свой конструкции отдаём: концы связи получают его по долям.
+  // Вес считаем по полю в том месте, где шар сейчас, а не по уровню целиком.
+  const g = ctx.gravityAt(p.x, p.y)
   const s = 1 - w.t
   if (!a.pinned) ctx.applyAccel(a, (g.x * p.mass * s) / a.mass, (g.y * p.mass * s) / a.mass)
   if (!b.pinned) ctx.applyAccel(b, (g.x * p.mass * w.t) / b.mass, (g.y * p.mass * w.t) / b.mass)
