@@ -3,10 +3,17 @@ export const lerp = (a, b, t) => a + (b - a) * t
 export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
 
 export function closestOnSegment(px, py, ax, ay, bx, by) {
+  return closestOnSegmentInto({ x: 0, y: 0, t: 0 }, px, py, ax, ay, bx, by)
+}
+
+// То же самое, но в готовый объект. В горячих циклах контакта таких вызовов
+// десятки тысяч за кадр, и создание объекта там дороже всей арифметики.
+export function closestOnSegmentInto(out, px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay
   const len2 = dx * dx + dy * dy
   const t = len2 ? clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0, 1) : 0
-  return { x: ax + dx * t, y: ay + dy * t, t }
+  out.x = ax + dx * t; out.y = ay + dy * t; out.t = t
+  return out
 }
 
 export function pointInPoly(x, y, pts) {

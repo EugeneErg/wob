@@ -2,6 +2,7 @@ import { Physics } from './verlet.js'
 import { getEntity } from './registry.js'
 import { EVENTS } from './globals.js'
 import { closestOnSegment, insideRegion, bboxOfPoints } from './geom.js'
+import { regionHas } from './grid.js'
 import { composeShapes } from './scene.js'
 
 let UID = 1
@@ -10,7 +11,7 @@ export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toStrin
 // Всё, что меняет мир: в редакторе этого нет, отрисовка обязана быть чистой.
 export const CONTEXT_MUTATORS = [
   'setSignal', 'shared',
-  'addPoint', 'addLink', 'addCollider', 'addBody', 'addWell',
+  'addPoint', 'addLink', 'addCollider', 'addBody', 'addWell', 'addPhase',
   'removePoint', 'removeLink', 'removeCollider', 'removeWell',
   'setRegion', 'applyAccel', 'setMass', 'setSpin',
   'emit', 'despawnSelf', 'destroy',
@@ -101,6 +102,9 @@ export class EntityContext {
     const i = this._wells.indexOf(w)
     if (i >= 0) this._wells.splice(i, 1)
   }
+  // Вещество: у частицы есть плотность покоя, вязкость и сцепление, и этим
+  // она отличается от обычного тела. Одинаковый key — одно вещество на всех.
+  addPhase(o) { return this.world.physics.fluid.addPhase(o) }
   removePoint(p) { this.world.physics.removePoint(p) }
   removeCollider(c) { this.world.physics.removeCollider(c) }
   // Заменить область коллайдера — так копают песок и рушат стены
@@ -143,7 +147,7 @@ export class EntityContext {
     for (const c of this.world.physics.colliders) {
       const b = c.bbox
       if (b && (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h)) continue
-      if (insideRegion(x, y, c.polys)) return true
+      if (regionHas(c, x, y)) return true
     }
     return false
   }
@@ -180,7 +184,7 @@ export class EntityContext {
         const t = i / samples
         const x = a.x + (b.x - a.x) * t
         const y = a.y + (b.y - a.y) * t
-        if (insideRegion(x, y, c.polys)) return true
+        if (regionHas(c, x, y)) return true
       }
     }
     return false

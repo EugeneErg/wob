@@ -65,6 +65,11 @@
      "levelId": "lvl-orbit",
      "x": 52,
      "y": 80
+    },
+    {
+     "levelId": "lvl-water",
+     "x": 52,
+     "y": 58
     }
    ],
    "edges": [
@@ -79,6 +84,10 @@
     {
      "from": "lvl-hole",
      "to": "lvl-orbit"
+    },
+    {
+     "from": "lvl-orbit",
+     "to": "lvl-water"
     }
    ],
    "hot": [
@@ -2539,6 +2548,486 @@
       "builtR": 13,
       "builtMass": 1,
       "anchorable": true
+     }
+    }
+   ],
+   "hot": []
+  },
+  {
+   "id": "lvl-water",
+   "name": "Заводь",
+   "width": 1600,
+   "height": 900,
+   "gravity": {
+    "x": 0,
+    "y": 1800
+   },
+   "goal": 5,
+   "entities": [
+    {
+     "id": "wt-left",
+     "type": "terrain",
+     "data": {
+      "points": [
+       [
+        140,
+        520
+       ],
+       [
+        520,
+        520
+       ],
+       [
+        520,
+        880
+       ],
+       [
+        140,
+        880
+       ]
+      ],
+      "smoothness": 0.35,
+      "fill": "#2a3326",
+      "edge": "#66804f"
+     }
+    },
+    {
+     "id": "wt-floor",
+     "type": "terrain",
+     "data": {
+      "points": [
+       [
+        520,
+        760
+       ],
+       [
+        1080,
+        760
+       ],
+       [
+        1080,
+        880
+       ],
+       [
+        520,
+        880
+       ]
+      ],
+      "smoothness": 0.35,
+      "fill": "#2a3326",
+      "edge": "#66804f"
+     }
+    },
+    {
+     "id": "wt-right",
+     "type": "terrain",
+     "data": {
+      "points": [
+       [
+        1080,
+        470
+       ],
+       [
+        1460,
+        470
+       ],
+       [
+        1460,
+        880
+       ],
+       [
+        1080,
+        880
+       ]
+      ],
+      "smoothness": 0.35,
+      "fill": "#2a3326",
+      "edge": "#66804f"
+     }
+    },
+    {
+     "id": "wt-water",
+     "type": "liquid",
+     "data": {
+      "points": [
+       [
+        528,
+        590
+       ],
+       [
+        1072,
+        590
+       ],
+       [
+        1072,
+        755
+       ],
+       [
+        528,
+        755
+       ]
+      ],
+      "material": "вода",
+      "spacing": 0,
+      "viscosity": 0.06,
+      "mass": 1,
+      "color": "#3d7fb5",
+      "edge": "#7fc4e8",
+      "opacity": 0.82
+     }
+    },
+    {
+     "id": "wt-a1",
+     "type": "system-ball",
+     "data": {
+      "x": 430,
+      "y": 500,
+      "r": 17,
+      "static": true,
+      "links": [
+       "wt-a2"
+      ],
+      "color": "#d8cbb0",
+      "linkColor": "#b9ae95"
+     }
+    },
+    {
+     "id": "wt-a2",
+     "type": "system-ball",
+     "data": {
+      "x": 500,
+      "y": 500,
+      "r": 17,
+      "static": true,
+      "links": [
+       "wt-a1"
+      ],
+      "color": "#d8cbb0",
+      "linkColor": "#b9ae95"
+     }
+    },
+    {
+     "id": "wt-pipe",
+     "type": "pipe",
+     "data": {
+      "points": [
+       [
+        1150,
+        450
+       ],
+       [
+        1330,
+        300
+       ],
+       [
+        1500,
+        240
+       ]
+      ],
+      "radius": 30,
+      "power": 1,
+      "color": "#4c93c4",
+      "inner": "#0d1a24"
+     }
+    },
+    {
+     "id": "wt-b0",
+     "type": "game-ball",
+     "data": {
+      "x": 200,
+      "y": 460,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b1",
+     "type": "game-ball",
+     "data": {
+      "x": 240,
+      "y": 460,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b2",
+     "type": "game-ball",
+     "data": {
+      "x": 280,
+      "y": 460,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b3",
+     "type": "game-ball",
+     "data": {
+      "x": 320,
+      "y": 460,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b4",
+     "type": "game-ball",
+     "data": {
+      "x": 360,
+      "y": 460,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b5",
+     "type": "game-ball",
+     "data": {
+      "x": 400,
+      "y": 460,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b6",
+     "type": "game-ball",
+     "data": {
+      "x": 200,
+      "y": 420,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b7",
+     "type": "game-ball",
+     "data": {
+      "x": 240,
+      "y": 420,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b8",
+     "type": "game-ball",
+     "data": {
+      "x": 280,
+      "y": 420,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b9",
+     "type": "game-ball",
+     "data": {
+      "x": 320,
+      "y": 420,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b10",
+     "type": "game-ball",
+     "data": {
+      "x": 360,
+      "y": 420,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
+     }
+    },
+    {
+     "id": "wt-b11",
+     "type": "game-ball",
+     "data": {
+      "x": 400,
+      "y": 420,
+      "r": 13,
+      "builtR": 13,
+      "sleepR": 13,
+      "mass": 1,
+      "builtMass": 1,
+      "sleepMass": 1,
+      "opacity": 1,
+      "anchorable": true,
+      "asleep": false,
+      "minLinks": 2,
+      "maxLinks": 3,
+      "range": 165,
+      "jump": 470,
+      "speed": 95,
+      "dropMax": 190,
+      "color": "#e2704a",
+      "linkColor": "#f0b48c"
      }
     }
    ],

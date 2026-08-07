@@ -1,10 +1,13 @@
 // Собственный верле-солвер.
 // Знает только о глобальных свойствах (см. core/globals.js) и ничего — о сущностях.
 
-import { clamp, closestOnSegment, insideRegion, ringsOf, bboxOfRings } from './geom.js'
+import { clamp, closestOnSegment, closestOnSegmentInto, insideRegion, ringsOf, bboxOfRings } from './geom.js'
+import { PointGrid, EdgeIndex, PAIRS_MIN, EDGES_MIN } from './grid.js'
+import { Fluid } from './fluid.js'
 import { GravityField } from './field.js'
 
 let UID = 1
+const SOLID_CELL = 96
 const nid = (p) => p + UID++
 
 // Во сколько раз сопротивление качению меньше трения скольжения при той же
@@ -19,6 +22,13 @@ export class Physics {
     // сколько угодно источников притяжения (см. core/field.js).
     this.field = new GravityField({ x: 0, y: 1800, ...(opts.gravity || {}) })
     this._g = { x: 0, y: 0 }
+    this.grid = new PointGrid()   // широкая фаза: кто с кем вообще может встретиться
+    this._push = (a, b) => this._pushApart(a, b)
+    this._skip = (p) => this._needsPairs(p)
+    this._solidCells = new Set()
+    this.fluid = new Fluid(this)   // среда: объём без формы (см. core/fluid.js)
+    this._seg = { x: 0, y: 0, t: 0 }                       // рабочие объекты контакта:
+    this._hit = { q: null, x: 0, y: 0, qx: 0, qy: 0, d: 0, edge: 0, t: 0 }  // создавать их в цикле дорого
     this.damping = opts.damping ?? 0.9994      // сопротивление среды
     this.iterations = opts.iterations ?? 3
     this.fixed = 1 / 120
@@ -69,8 +79,13 @@ export class Physics {
       collision: {                         // коллизия
         world: o.collision?.world ?? true, // со статической геометрией
         points: o.collision?.points ?? true, // с другими точками
+        // Со средой отношения отдельные. Ходячий шар нарочно проходит сквозь
+        // других шаров — но не сквозь воду: «не толкаться» и «не тонуть» это
+        // разные вещи, и одним флагом их путать нельзя.
+        fluid: o.collision?.fluid ?? true,
       },
       attachable: o.attachable ?? false,   // можно ли прилепить связь
+      phase: o.phase || 0,                 // вещество: 0 — обычное тело, иначе среда (см. core/fluid.js)
       suction: o.suction ?? 0,             // всасывание
       // Точка — это диск радиуса radius, а у диска есть момент инерции ½mr².
       // Поэтому трение её крутит: spin — угловая скорость (рад за подшаг),
@@ -243,6 +258,12 @@ export class Physics {
     c.rings = ringsOf(polys)
     c.points = c.rings[0] || []
     c.bbox = bboxOfRings(c.rings)
+    // У песка после раскопки кольца бывают на сотни вершин — тогда границу
+    // индексируем. Восьми вершинам рельефа индекс дороже перебора.
+    let n = 0
+    for (const r of c.rings) n += r.length
+    c.index = n > EDGES_MIN ? new EdgeIndex(polys) : null
+    c.stamp = (c.stamp || 0) + 1   // граница изменилась: пересобрать призраков
     return c
   }
 
@@ -284,16 +305,20 @@ export class Physics {
     // 2. решение ограничений — только позиции
     for (const l of this.links) l.lambda = 0
     for (const p of this.points) p.cn = 0
+    this._rebuildGrid()
+    const hasFluid = this.fluid.prepare()
     for (let i = 0; i < this.iterations; i++) {
       this._solveLinks(dt)
       this._solveBodies()
       this._solvePairs()
+      if (hasFluid) this.fluid.separate()
       this._syncColliders()
       this._collide()
     }
 
     // 3. скорость: трение и отскок в контактах, гашение вдоль связей
     this._contactVelocity()
+    if (hasFluid) this.fluid.project()
     this._dampLinks()
 
     // 3a. накопленный поворот — чтобы вращение было видно на экране
@@ -355,28 +380,71 @@ export class Physics {
     }
   }
 
+  // Расталкивание двух тел. Проход последовательный: каждая пара видит уже
+  // исправленные предыдущими положения — поэтому порядок пар важен и сетка
+  // обязана отдавать их в том же порядке, что и перебор всех со всеми.
+  _pushApart(a, b) {
+    if (a.phase && a.phase === b.phase) return    // своих среда расталкивает сама
+    if (a.phase || b.phase) {
+      const solid = a.phase ? b : a, drop = a.phase ? a : b
+      if (!solid.collision.fluid || !drop.collision.points) return
+    } else if (!a.collision.points || !b.collision.points) return
+    const dx = b.x - a.x, dy = b.y - a.y
+    const min = a.radius + b.radius
+    if (Math.abs(dx) > min || Math.abs(dy) > min) return
+    const d = Math.hypot(dx, dy)
+    if (d >= min || d < 1e-9) return
+    const ima = a.pinned ? 0 : 1 / a.mass
+    const imb = b.pinned ? 0 : 1 / b.mass
+    const s = ima + imb
+    if (!s) return
+    const push = (min - d) / d
+    a.x -= dx * push * (ima / s); a.y -= dy * push * (ima / s)
+    b.x += dx * push * (imb / s); b.y += dy * push * (imb / s)
+  }
+
+  // Сетку перекладываем раз на подшаг, а не на каждую итерацию: за итерацию
+  // тела сдвигаются на доли пикселя, и запас в несколько пикселей гарантирует,
+  // что в кандидатах окажется всё, что могло сойтись. Лишнее в списке
+  // безвредно — расстояние всё равно проверяется точно.
+  _rebuildGrid() {
+    if (this.points.length < PAIRS_MIN) return
+    this.grid.build(this.points, 6)
+    // Своих среда расталкивает сама, своей же сеткой (core/fluid.js). Общему
+    // проходу остаётся только встреча среды с обычным телом — а обычных тел на
+    // уровне единицы. Отмечаем крупные клетки, где они есть, и частица
+    // проверяет одну ячейку вместо сбора двух десятков соседей.
+    const near = this._solidCells
+    near.clear()
+    let big = 0
+    for (const p of this.points) if (!p.phase && p.radius > big) big = p.radius
+    const c = SOLID_CELL
+    for (const p of this.points) {
+      if (p.phase || !(p.collision.points || p.collision.fluid)) continue
+      const r = p.radius + big + 12
+      const x0 = Math.floor((p.x - r) / c), x1 = Math.floor((p.x + r) / c)
+      const y0 = Math.floor((p.y - r) / c), y1 = Math.floor((p.y + r) / c)
+      for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) near.add(cx * 100003 + cy)
+    }
+  }
+
+  _needsPairs(p) {
+    if (!p.phase) return true
+    const c = SOLID_CELL
+    return this._solidCells.has(Math.floor(p.x / c) * 100003 + Math.floor(p.y / c))
+  }
+
   _solvePairs() {
     const pts = this.points
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[i]
-      if (!a.collision.points) continue
-      for (let j = i + 1; j < pts.length; j++) {
-        const b = pts[j]
-        if (!b.collision.points) continue
-        const dx = b.x - a.x, dy = b.y - a.y
-        const min = a.radius + b.radius
-        if (Math.abs(dx) > min || Math.abs(dy) > min) continue
-        const d = Math.hypot(dx, dy)
-        if (d >= min || d < 1e-9) continue
-        const ima = a.pinned ? 0 : 1 / a.mass
-        const imb = b.pinned ? 0 : 1 / b.mass
-        const s = ima + imb
-        if (!s) continue
-        const push = (min - d) / d
-        a.x -= dx * push * (ima / s); a.y -= dy * push * (ima / s)
-        b.x += dx * push * (imb / s); b.y += dy * push * (imb / s)
+    if (pts.length < PAIRS_MIN) {
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i]
+        if (!a.collision.points) continue
+        for (let j = i + 1; j < pts.length; j++) this._pushApart(a, pts[j])
       }
+      return
     }
+    this.grid.pairs(this._push, this._skip)
   }
 
   _syncColliders() {
@@ -387,6 +455,8 @@ export class Physics {
         c.points[i][1] = c.verts[i].y
       }
       c.bbox = bboxOfRings(c.rings)
+      if (c.index) c.index.build(c.polys)
+      c.stamp++
     }
   }
 
@@ -440,8 +510,12 @@ export class Physics {
         }
         const vx = p.x - p.px - sx, vy = p.y - p.py - sy
         const rest = (p.restitution + c.restitution) * 0.5
-        // гладкость 0 — шершавая поверхность, 1 — лёд
-        const avg = clamp((p.smoothness + c.smoothness) * 0.5, 0, 1)
+        // гладкость 0 — шершавая поверхность, 1 — лёд.
+        // У среды трения о стенку нет вовсе, какой бы шершавой стенка ни была:
+        // сопротивление жидкости о берег — это вязкость внутри неё самой, а не
+        // сухое трение. С кулоновым трением вода прилипает к дну и не может
+        // растечься — поверхность так и застывает волнами.
+        const avg = p.phase ? p.smoothness : clamp((p.smoothness + c.smoothness) * 0.5, 0, 1)
         const mu = 1 - avg
         const tx = -ny, ty = nx
         const vn = vx * nx + vy * ny
@@ -505,27 +579,36 @@ export class Physics {
     if (p.x + p.radius < bb.x || p.x - p.radius > bb.x + bb.w) return null
     if (p.y + p.radius < bb.y || p.y - p.radius > bb.y + bb.h) return null
 
-    // граница области — это все её кольца, включая дырки
-    const closest = (x, y) => {
-      let q = null, best = Infinity, edge = 0, t = 0
+    // Граница области — это все её кольца, включая дырки. У крупных областей
+    // спрашиваем индекс, у мелких перебираем: ответ обязан быть один и тот же.
+    const closest = c.index ? (x, y, limit) => c.index.closest(x, y, limit) : (x, y) => {
+      const s = this._seg, out = this._hit
+      let best = Infinity, edge = 0
+      out.q = null
       for (const ring of rings) {
         for (let i = 0, n = ring.length; i < n; i++) {
           const a = ring[i], b = ring[(i + 1) % n]
-          const s = closestOnSegment(x, y, a[0], a[1], b[0], b[1])
+          closestOnSegmentInto(s, x, y, a[0], a[1], b[0], b[1])
           const d = Math.hypot(x - s.x, y - s.y)
-          if (d < best) { best = d; q = s; edge = i; t = s.t }
+          if (d < best) { best = d; out.qx = s.x; out.qy = s.y; out.q = out; edge = i; out.t = s.t }
         }
       }
-      return { q, d: best, edge, t }
+      out.x = out.qx; out.y = out.qy
+      out.d = best; out.edge = edge
+      return out
     }
+    const has = c.index ? (x, y) => c.index.inside(x, y) : (x, y) => insideRegion(x, y, c.polys)
 
-    const inside = insideRegion(p.x, p.y, c.polys)
-    let { q, d, edge, t } = closest(p.x, p.y)
-    if (!q) return null
+    // Снаружи граница интересна только в пределах своего радиуса — этим
+    // ограничением индекс живёт одним просмотром вместо расширяющегося поиска.
+    const inside = has(p.x, p.y)
+    const near = inside ? closest(p.x, p.y) : closest(p.x, p.y, p.radius + slack)
+    if (!near || !near.q) return null
+    let { q, d, edge, t } = near
     if (!inside && d >= p.radius + slack) return null
 
     let nx, ny
-    if (inside && !insideRegion(p.px, p.py, c.polys)) {
+    if (inside && !has(p.px, p.py)) {
       // влетел за один шаг — выталкиваем туда, откуда пришёл
       const prev = closest(p.px, p.py)
       q = prev.q; edge = prev.edge; t = prev.t

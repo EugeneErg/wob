@@ -60,9 +60,18 @@ console.log('2. мир её обновляет и рисует:', w.scene().leng
 console.log('3. превью в редакторе строится:', shapesForLevel(level).length > 0)
 
 // 4. что именно видно про чужое тело
-const allowed = ['id', 'x', 'y', 'px', 'py', 'ax', 'ay', 'fx', 'fy', 'radius', 'mass', 'lift',
-  'restitution', 'smoothness', 'collision', 'attachable', 'suction', 'pinned',
-  'gravityScale', 'owner', 'group', 'links', 'removed']
+// Список — не «что накопилось», а что сущности законно видеть: положение и
+// скорость, силы за кадр, вращение и глобальные свойства из core/globals.js.
+// Появится здесь тип, данные или рантайм соседа — сторож упадёт.
+const allowed = [
+  'id', 'x', 'y', 'px', 'py',          // где было и где стало
+  'ax', 'ay', 'fx', 'fy', 'cn',        // силы и нормальный импульс за подшаг
+  'kx', 'ky',                          // скорость закреплённой точки, заданная снаружи
+  'spin', 'angle', 'rigid',            // вращение диска и участие в жёстком теле
+  'phase', 'calm', 'calmX', 'calmY',   // вещество и покой (см. core/fluid.js)
+  'radius', 'mass', 'lift', 'restitution', 'smoothness', 'collision',
+  'attachable', 'suction', 'pinned', 'gravityScale',
+  'owner', 'group', 'links', 'removed']
 const extra = (sawForeign || []).filter((k) => !allowed.includes(k))
 console.log('4. поля чужого тела:', (sawForeign || []).join(','))
 console.log('   лишнего (типа, данных, рантайма соседа) не видно:', extra.length === 0)
