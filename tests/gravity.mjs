@@ -1,7 +1,7 @@
 // Гравитация как поле: невесомость, один источник, суперпозиция, орбита,
 // отталкивание, выключатель и ходьба по круглой планете.
 import '../src/entities/index.js'
-import { Physics } from '../src/core/verlet.js'
+import { Physics } from '../src/core/solver.js'
 import { World } from '../src/core/world.js'
 
 const r2 = (v) => Math.round(v * 100) / 100
@@ -74,7 +74,7 @@ const r1 = (v) => Math.round(v * 10) / 10
   ph.addWell({ x: 800, y: 450, pull: PULL, radius: R })
   const a = PULL * (R / r) ** 2
   const v = Math.sqrt(a * r)
-  const p = ph.addPoint({ x: 800 + r, y: 450, mass: 1, vy: -v / 120, collision: { world: false, points: false } })
+  const p = ph.addPoint({ x: 800 + r, y: 450, mass: 1, vy: -v, collision: { world: false, points: false } })
   let min = Infinity, max = 0
   const T = (2 * Math.PI * r) / v
   for (let i = 0; i < Math.round(T * 60) * 2; i++) {

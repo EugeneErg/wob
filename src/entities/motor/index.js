@@ -63,13 +63,14 @@ export default defineEntity({
       const [cx, cy] = ctx.place(data.x, data.y)
       const a = rt.angle + ctx.angle
       const ax = rt.axis
-      ax.x = cx; ax.y = cy; ax.px = cx; ax.py = cy
+      ctx.placeAt(ax, cx, cy)
       const m = rt.mark
       if (m) {
         const nx = cx + Math.cos(a) * data.r
         const ny = cy + Math.sin(a) * data.r
-        m.kx = (nx - m.x) * 60; m.ky = (ny - m.y) * 60
-        m.x = nx; m.y = ny; m.px = nx; m.py = ny
+        const vx = (nx - m.x) / dt, vy = (ny - m.y) / dt
+        ctx.placeAt(m, nx, ny)
+        ctx.setVelocity(m, vx, vy)
       }
       return
     }
@@ -82,10 +83,10 @@ export default defineEntity({
     for (const p of body.verts) {
       if (p.pinned) continue
       const rx = p.x - ax, ry = p.y - ay
-      num += rx * (p.y - p.py) - ry * (p.x - p.px)
+      num += rx * p.vy - ry * p.vx
       den += rx * rx + ry * ry
     }
-    const omega = den ? (num / den) * 120 : 0   // рад/с
+    const omega = den ? num / den : 0   // рад/с
     rt.spin = omega
     rt.angle += omega * dt
     if (!target) return                          // мотор выключен — чистый шарнир

@@ -7,7 +7,7 @@ for (const [x, y] of [[540, 715], [650, 715], [790, 750], [520, 755]]) {
     { id: 'sb', parent: 'slab', type: 'system-ball', data: { x, y, r: 17, static: true, links: [], color: '#d8cbb0', linkColor: '#b9ae95' } }] })
   const verts = () => w.instances.find((i) => i.type === 'object').rt.verts
   let peak = 0
-  for (let i = 0; i < 60 * 6; i++) { w.step(1 / 60); peak = Math.max(peak, ...verts().map((p) => Math.hypot(p.x - p.px, p.y - p.py) * 120)) }
+  for (let i = 0; i < 60 * 6; i++) { w.step(1 / 60); peak = Math.max(peak, ...verts().map((p) => Math.hypot(p.vx, p.vy))) }
   const v = verts()
   console.log(`шар в (${x},${y}): пик ${peak.toFixed(0)} px/с, центр плиты y=${(v.reduce((a, p) => a + p.y, 0) / 4).toFixed(0)}`)
 }

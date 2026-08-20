@@ -1,8 +1,8 @@
-import { Physics } from './verlet.js'
+import { Physics } from './solver.js'
 import { getEntity } from './registry.js'
 import { EVENTS } from './globals.js'
 import { closestOnSegment, insideRegion, bboxOfPoints } from './geom.js'
-import { regionHas } from './grid.js'
+import { regionHas, regionDistance } from './grid.js'
 import { composeShapes } from './scene.js'
 
 let UID = 1
@@ -14,6 +14,7 @@ export const CONTEXT_MUTATORS = [
   'addPoint', 'addLink', 'addCollider', 'addBody', 'addWell', 'addPhase',
   'removePoint', 'removeLink', 'removeCollider', 'removeWell',
   'setRegion', 'applyAccel', 'setMass', 'setSpin',
+  'setVelocity', 'addImpulse', 'placeAt', 'setPinned',
   'emit', 'despawnSelf', 'destroy',
 ]
 
@@ -37,6 +38,15 @@ export class EntityContext {
   // Полное ускорение свободного падения в этом месте: однородная составляющая
   // плюс все источники притяжения. Кто их поставил — не видно, как и положено.
   gravityAt(x, y) { return this.world.physics.gravityAt(x, y, { x: 0, y: 0 }) }
+
+  // Самая узкая щель, какая может появиться на этом уровне, в пикселях.
+  //
+  // Нужна тому, у кого есть собственное разрешение расчёта, — прежде всего среде:
+  // частица должна быть настолько мельче щели, чтобы вода в неё затекала. Каждая
+  // сущность объявляет своё через необязательный def.detail(data); кто именно
+  // объявил и что это за сущность — спрашивающего не касается, он видит одно число.
+  // Так разрешение перестаёт быть настройкой в редакторе: оно следует из уровня.
+  detail() { return this.world.detail() }
   get time() { return this.world.time }
   get bounds() { return this.world.bounds }
   get pointer() { return this.world.pointer }
@@ -111,6 +121,14 @@ export class EntityContext {
   setRegion(c, polys) { return this.world.physics.setRegion(c, polys) }
   removeLink(l) { this.world.physics.removeLink(l) }
   applyAccel(p, ax, ay) { this.world.physics.applyAccel(p, ax, ay) }
+  // Скорость — обычное состояние тела, и задавать её можно прямо. Раньше для
+  // этого приходилось двигать «прошлое положение»: телепорт был неотличим от
+  // разгона, и всякая перестановка тела молча превращалась в удар.
+  setVelocity(p, vx, vy) { this.world.physics.setVelocity(p, vx, vy) }
+  addImpulse(p, ix, iy) { this.world.physics.addImpulse(p, ix, iy) }
+  // Переставить тело, не разгоняя его
+  placeAt(p, x, y, keepVelocity = false) { this.world.physics.place(p, x, y, keepVelocity) }
+  setPinned(p, on) { this.world.physics.setPinned(p, on) }
   setMass(p, m) { this.world.physics.setMass(p, m) }
   // угловая скорость точки, рад/с: живое тело может держать себя от вращения
   setSpin(p, w) { this.world.physics.setSpin(p, w) }
@@ -150,6 +168,24 @@ export class EntityContext {
       if (regionHas(c, x, y)) return true
     }
     return false
+  }
+
+  // Насколько свободно место: расстояние до ближайшего камня, со знаком минус
+  // внутри него. Дальше limit не ищем — за пределом ответ всё равно не нужен, а
+  // перебор кромки стоит денег.
+  //
+  // Нужно тому, у кого есть собственное разрешение расчёта: по этому полю меряется
+  // самая узкая щель в геометрии. Тип сущности, которой геометрия принадлежит, тут
+  // по-прежнему не виден — только расстояние.
+  clearance(x, y, limit = 1e6) {
+    let d = limit
+    for (const c of this.world.physics.colliders) {
+      const b = c.bbox
+      if (b && (x < b.x - d || x > b.x + b.w + d || y < b.y - d || y > b.y + b.h + d)) continue
+      const t = regionDistance(c, x, y, limit)
+      if (t < d) d = t
+    }
+    return d
   }
 
   // Кратчайший путь по графу связей до точки, удовлетворяющей pred.
@@ -276,11 +312,13 @@ function applyTransform(inst, t, dt = 1 / 60) {
   if (carryPoints) {
     for (const p of inst.ctx.owned.points) {
       const [x, y] = map(p.x, p.y)
-      const [rx, ry] = map(p.px, p.py)
-      // закреплённую точку физика не двигает, поэтому её скорость сообщаем явно
-      p.kx = (x - p.x) / dt
-      p.ky = (y - p.y) / dt
-      p.x = x; p.y = y; p.px = rx; p.py = ry
+      // Возить — значит переставлять, и скорость при этом надо сообщать, а не
+      // получать побочно. Прежде для этого приходилось двигать «прошлое
+      // положение» и заводить отдельное поле kx/ky, потому что у закреплённой
+      // точки положений два, а скорости не было ни одной.
+      p.vx = (x - p.x) / dt
+      p.vy = (y - p.y) / dt
+      p.x = x; p.y = y; p.sx = x; p.sy = y
     }
   }
   for (const c of inst.ctx.owned.colliders) {
@@ -314,6 +352,23 @@ export class World {
     this.frame = 0
     this.missing = []   // типы, которых нет в сборке — уровень их не потерял, но и не показал
     for (const e of level.entities || []) this.spawn(e.type, e.data, e.id, e.parent)
+  }
+
+  // Минимум по объявлениям. Считаем и по описанию уровня, и по живым инстансам:
+  // сущность, добавленная позже, тоже сужает щель, а порядок размещения при этом
+  // ничего не решает.
+  detail() {
+    let d = Infinity
+    const take = (def, data) => {
+      const v = def && def.detail && def.detail(data)
+      if (v > 0 && v < d) d = v
+    }
+    for (const e of this.level.entities || []) {
+      const def = getEntity(e.type)
+      if (def) take(def, e.data ?? def.defaults())
+    }
+    for (const inst of this.instances) take(inst.def, inst.data)
+    return d
   }
 
   shared(name, factory, ownerId) {
@@ -441,6 +496,7 @@ export class World {
       p.carried = true
       p.pinnedBefore = p.pinned
       p.pinned = true
+      p.vx = 0; p.vy = 0   // закреплённая точка везёт свою скорость снаружи
     }
   }
 

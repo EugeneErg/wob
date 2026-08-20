@@ -36,7 +36,7 @@ w.on(EVENTS.progress, (e) => (score += e.delta))
 for (let i = 0; i < 60 * 4; i++) w.step(1 / 60)
 const got = score
 const bp = w.instances.find((i) => i.type === 'system-ball').rt.p
-bp.x = 300; bp.y = 600; bp.px = bp.x; bp.py = bp.y   // вынули шар из лунки
+bp.x = 300; bp.y = 600; bp.vx = 0; bp.vy = 0   // вынули шар из лунки
 for (let i = 0; i < 60 * 3; i++) w.step(1 / 60)
 console.log(`4. выбили шар: было ${got}, стало ${score}, сигнал сейчас ${w.signals.get('дверь')}`)
 

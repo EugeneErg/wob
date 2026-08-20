@@ -47,7 +47,7 @@ export default defineEntity({
 
     for (const p of ctx.points) {
       if (p.pinned || !p.collision.world) continue
-      const vx = (p.x - p.px) * 120, vy = (p.y - p.py) * 120
+      const vx = p.vx, vy = p.vy
       const k = (data.force * p.radius) / (13 * p.mass)
       ctx.applyAccel(p, (air.x - vx) * k, (air.y - vy) * k)
     }

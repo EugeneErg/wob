@@ -61,7 +61,7 @@ export default defineEntity({
       if (!p.collision.world) return false
       // тютелька в тютельку: чужой размер в лунку не считается
       if (p.radius < data.r * 0.55 || p.radius > data.r * 1.12) return false
-      const v = Math.hypot(p.x - p.px, p.y - p.py) * 120
+      const v = Math.hypot(p.vx, p.vy)
       return v < 60
     }, data.r * 0.7)
 

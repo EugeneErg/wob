@@ -84,9 +84,10 @@ export default defineEntity({
     const p = rt.p
     const prevX = p.x, prevY = p.y
     const [wx, wy] = ctx.place(a[0] + (b[0] - a[0]) * rt.t, a[1] + (b[1] - a[1]) * rt.t)
-    p.x = wx; p.y = wy
-    p.px = p.x; p.py = p.y
-    p.kx = (wx - prevX) * 60; p.ky = (wy - prevY) * 60
+    ctx.placeAt(p, wx, wy)
+    // Платформа закреплена, поэтому её скорость никто не выведет за неё:
+    // сообщаем сами — от неё зависит трение груза о платформу.
+    ctx.setVelocity(p, (wx - prevX) / dt, (wy - prevY) / dt)
   },
 
   shapes(data, rt, ctx) {

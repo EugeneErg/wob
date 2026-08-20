@@ -95,7 +95,7 @@ console.log('\n=== глобальный ветер: перелив между д
   const air = () => ww.instances.find((i) => i.type === 'wind').rt.air
   for (let t = 0; t <= 4; t++) {
     for (let i = 0; i < 60; i++) ww.step(1 / 60)
-    console.log(`  t=${t + 1}c: ветер по X ${air().x.toFixed(0)}, шар x=${p.x.toFixed(0)} скорость ${((p.x - p.px) * 120).toFixed(0)} px/с`)
+    console.log(`  t=${t + 1}c: ветер по X ${air().x.toFixed(0)}, шар x=${p.x.toFixed(0)} скорость ${(p.vx).toFixed(0)} px/с`)
   }
 }
 
@@ -142,7 +142,7 @@ console.log('\n=== вентилятор отвечает за свою стру�
     const w = new World({ width: 1600, height: 900, gravity: { x: 0, y: 1800 }, entities })
     const p = w.instances.find((i) => i.type === 'system-ball').rt.p
     for (let i = 0; i < 30; i++) w.step(1 / 60)
-    p.px = p.x - 500 / 120           // толкнули на 500 px/с
+    p.vx = 500           // толкнули на 500 px/с
     const x0 = p.x
     for (let i = 0; i < 60 * 4; i++) w.step(1 / 60)
     return p.x - x0

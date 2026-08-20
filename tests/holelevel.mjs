@@ -21,6 +21,6 @@ w.pointerUp({ x: 1000, y: 275 })
 for (let t = 0; t < 16; t++) {
   run(60)
   const p = ball()
-  if (t % 3 === 2 || score) console.log(`  t=${t + 1}c шар (${p.x.toFixed(0)}, ${p.y.toFixed(0)}) скорость ${(Math.hypot(p.x - p.px, p.y - p.py) * 120).toFixed(0)} px/с, счёт ${score}`)
+  if (t % 3 === 2 || score) console.log(`  t=${t + 1}c шар (${p.x.toFixed(0)}, ${p.y.toFixed(0)}) скорость ${(Math.hypot(p.vx, p.vy)).toFixed(0)} px/с, счёт ${score}`)
 }
 console.log(score >= lvl.goal ? 'уровень пройден' : 'шар до лунки не дошёл')

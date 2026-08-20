@@ -1,4 +1,4 @@
-import { Physics } from '../src/core/verlet.js'
+import { Physics } from '../src/core/solver.js'
 // треугольник из трёх динамических шаров стоит на земле
 const ph = new Physics({ gravity: { x: 0, y: 1800 } })
 ph.addCollider({ points: [[0, 700], [1200, 700], [1200, 900], [0, 900]], smoothness: 0.35, restitution: 0.05 })

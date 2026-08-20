@@ -83,7 +83,7 @@ export default defineEntity({
         const a = sample(f, p.x, p.y)
         const air = Math.hypot(a.x, a.y)
         if (air < 1) continue
-        const vx = (p.x - p.px) * 120, vy = (p.y - p.py) * 120
+        const vx = p.vx, vy = p.vy
         const k = (data.push * p.radius * air) / (6500 * p.mass)
         ctx.applyAccel(p, (a.x - vx) * k, (a.y - vy) * k)
       }

@@ -7,7 +7,7 @@ const run = (n) => { for (let i = 0; i < n; i++) w.step(1 / 60) }
 const balls = () => w.instances.filter((x) => x.type === 'game-ball')
 const built = () => balls().filter((b) => b.rt.state === 'built')
 // дрожь = максимальная скорость точек конструкции
-const jitter = () => Math.max(0, ...built().map((b) => Math.hypot(b.rt.p.x - b.rt.p.px, b.rt.p.y - b.rt.p.py) * 120))
+const jitter = () => Math.max(0, ...built().map((b) => Math.hypot(b.rt.p.vx, b.rt.p.vy)))
 
 run(60)
 for (const [i, y] of [700, 660, 620, 580, 540].entries()) {

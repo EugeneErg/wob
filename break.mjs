@@ -1,4 +1,4 @@
-import { Physics } from './src/core/verlet.js'
+import { Physics } from './src/core/solver.js'
 function hang(n, mass) {
   const ph = new Physics({ gravity: { x: 0, y: 1800 } })
   let prev = ph.addPoint({ x: 400, y: 100, pinned: true })

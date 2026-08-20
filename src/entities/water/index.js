@@ -23,20 +23,84 @@ const MATERIALS = {
   кисель: { viscosity: 0.6, mass: 1.1, color: '#7a2f52', edge: '#c9678f' },
 }
 
-// Шаг частиц — не свойство вещества, а разрешение расчёта, и выбирать его
-// пользователю незачем. Считаем сами: столько, чтобы на область пришлось около
-// TARGET частиц. Маленькая лужа получит мелкий шаг и будет гладкой даром,
-// большая — крупный и не съест кадр. Границы не дают уйти в крайности.
-const TARGET = 750, MIN_STEP = 8, MAX_STEP = 18
-function stepFor(poly) {
+// Шаг частиц — не свойство вещества, а разрешение расчёта, и в редакторе его нет.
+//
+// Раньше он считался «столько частиц, чтобы не съесть кадр»: большой пруд получал
+// крупный шаг и становился зернистым. Это молчаливый размен качества на
+// производительность, причём сделанный за дизайнера и вслепую — он не знает ни что
+// разменивает, ни на что.
+//
+// Считаем от геометрии. Требование ровно одно и оно проверяемое: вода обязана
+// затекать в самую узкую щель, какая на этом уровне возможна. Меряется это прямо —
+// роем канал и считаем, сколько частиц в нём осело:
+//
+//   ширина щели / шаг частиц     3.6   2.5   2.2   1.7
+//   осело от нормальной укладки  1.0   1.0   0.5   0.1
+//
+// То есть двух с половиной частиц поперёк хватает, полутора — нет. Отсюда ACROSS.
+// Саму щель объявляют те, кто её создаёт (ctx.detail), а не вода: ей всё равно,
+// от кого щель взялась.
+//
+// Второе требование — тоже абсолютное, а не «сколько потянем»: неровность стоячей
+// поверхности должна быть меньше пикселя, то есть невидимой. Замер на уровне
+// «Заводь»: шаг 14 даёт 2.4 px, шаг 11 — 0.6 px, и стоит это 4.0 против 4.3 мс на
+// кадр. Двух десятых миллисекунды такая разница стоит, а дальше улучшать нечего:
+// шаг 8 даёт 0.1 px и уже 7.8 мс. Отсюда MAX_STEP.
+// MIN_STEP — предохранитель от нечаянного нуля в объявлении щели.
+// ACROSS выведен, а не подобран. Предел ставит СЕТКА, а не частицы: щель уже одной
+// клетки решатель давления просто не видит, и вода в неё не идёт ни при каком
+// расталкивании — проверено вплоть до полного его отключения. Клетка равна двум
+// шагам частиц (fluid.cellRatio), запас на то, что щель ляжет между узлами, — ещё
+// четверть. Отсюда 2.5, и если поменять cellRatio, это число обязано поехать следом.
+const MIN_STEP = 8, MAX_STEP = 11, CELL_RATIO = 2, ACROSS = 1.25 * CELL_RATIO
+
+// Самая узкая щель в уже нарисованной геометрии.
+//
+// Объявления (ctx.detail) хватает только на то, чего ещё нет: подкоп появится
+// когда-нибудь потом, и объявить его может лишь тот, кто копает. А рельеф, объект и
+// узко нарисованный песок лежат в уровне прямо сейчас — их надо мерить, а не
+// спрашивать, и тогда тип сущности не при чём вовсе.
+//
+// Меряем по хребту поля расстояний: точка, где до камня дальше, чем у соседей слева
+// и справа (или сверху и снизу), лежит посередине прохода, и удвоенное расстояние
+// там и есть его ширина. Считается один раз при рождении лужи.
+function measured(ctx, poly) {
   const bb = bboxOfPoints(poly)
-  let area = 0
-  for (let i = 0; i < poly.length; i++) {
-    const a = poly[i], b = poly[(i + 1) % poly.length]
-    area += a[0] * b[1] - b[0] * a[1]
+  const pad = 60, s = 5
+  const x0 = bb.x - pad, x1 = bb.x + bb.w + pad
+  const y0 = bb.y - pad, y1 = bb.y + bb.h + pad
+  const nx = Math.min(220, Math.ceil((x1 - x0) / s)), ny = Math.min(220, Math.ceil((y1 - y0) / s))
+  if (nx < 3 || ny < 3) return Infinity
+  // В редакторе мира нет, поле расстояний спрашивать не у кого — там эта мерка
+  // молчит, и предпросмотр честно говорит «≈», а не выдумывает число.
+  if (!Number.isFinite(ctx.clearance(bb.x + bb.w / 2, bb.y + bb.h / 2, 200))) return Infinity
+  const dx = (x1 - x0) / nx, dy = (y1 - y0) / ny
+  const d = new Float64Array(nx * ny)
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) d[i + j * nx] = ctx.clearance(x0 + i * dx, y0 + j * dy, 200)
   }
-  area = Math.abs(area) / 2 || bb.w * bb.h
-  return Math.max(MIN_STEP, Math.min(MAX_STEP, Math.sqrt(area / TARGET)))
+  let best = Infinity
+  for (let j = 1; j < ny - 1; j++) {
+    for (let i = 1; i < nx - 1; i++) {
+      const k = i + j * nx, v = d[k]
+      // Точку ровно на кромке камня пропускаем: расстояние там около нуля, и вдоль
+      // самой кромки оно постоянно, так что формально она выглядит хребтом нулевой
+      // ширины. Меньше шага выборки мы всё равно ничего не различаем.
+      if (v <= Math.max(dx, dy)) continue
+      // Строго больше обоих соседей. Нестрогое сравнение ловит и ровную стенку:
+      // вдоль неё расстояние до камня постоянно, и вся полоса выглядит хребтом.
+      const ridgeX = v > d[k - 1] && v > d[k + 1]
+      const ridgeY = v > d[k - nx] && v > d[k + nx]
+      if (!ridgeX && !ridgeY) continue           // не середина прохода, а просто у стенки
+      if (v * 2 < best) best = v * 2
+    }
+  }
+  return best
+}
+
+function stepFor(detail) {
+  const want = (detail > 0 ? detail : Infinity) / ACROSS
+  return Math.max(MIN_STEP, Math.min(MAX_STEP, want))
 }
 
 // Шестиугольная укладка: у неё расстояние до всех шести соседей одинаковое,
@@ -64,7 +128,6 @@ export default defineEntity({
   defaults: () => ({
     points: [],
     material: 'вода',
-    spacing: 0,        // 0 — подобрать по размеру области
     viscosity: 0.06,
     mass: 1,
     color: '#3d7fb5',
@@ -74,7 +137,7 @@ export default defineEntity({
 
   spawn(ctx, data) {
     const poly = data.points.map(([x, y]) => ctx.place(x, y))
-    const step = data.spacing > 0 ? data.spacing : stepFor(poly)
+    const step = stepFor(Math.min(ctx.detail(), measured(ctx, poly)))
     const phase = ctx.addPhase({
       key: data.material || 'вода',
       spacing: step,
@@ -159,14 +222,16 @@ export default defineEntity({
       if (poly.length < 3) return []
       // Показываем область и укладку, но не все частицы: их бывает под тысячу,
       // и тысяча кружков в редакторе тормозит сильнее, чем сама вода в игре.
-      const step = data.spacing > 0 ? data.spacing : stepFor(poly)
+      const step = stepFor(Math.min(ctx.detail(), measured(ctx, poly)))
       const dots = lattice(poly, step)
       const every = Math.ceil(dots.length / 140)
       const out = [{ k: 'poly', pts: poly, closed: true, fill: data.color, opacity: 0.3, stroke: data.edge, sw: 2, dash: '7 6' }]
       for (let i = 0; i < dots.length; i += every) {
         out.push({ k: 'circle', x: dots[i][0], y: dots[i][1], r: step * 0.4, fill: data.color, opacity: 0.55 })
       }
-      out.push({ k: 'text', x: (poly[0][0] + poly[2][0]) / 2, y: (poly[0][1] + poly[2][1]) / 2, text: `${dots.length} частиц, шаг ${step.toFixed(0)}`, size: 20, fill: data.edge })
+      // Шаг в предпросмотре — верхняя граница: узкие щели уровня его ещё уменьшат,
+      // а поля расстояний в редакторе нет. Врать точным числом хуже, чем показать «до».
+      out.push({ k: 'text', x: (poly[0][0] + poly[2][0]) / 2, y: (poly[0][1] + poly[2][1]) / 2, text: `до ${dots.length} частиц, шаг ${step.toFixed(0)} и мельче`, size: 20, fill: data.edge })
       return out
     }
     if (!rt.rings.length) return []
@@ -195,7 +260,7 @@ export default defineEntity({
       },
       finish(d) {
         if (d.points.length < 3) return null
-        return { points: d.points, material: 'вода', spacing: 0, ...MATERIALS['вода'], opacity: 0.82 }
+        return { points: d.points, material: 'вода', ...MATERIALS['вода'], opacity: 0.82 }
       },
     },
 
@@ -213,7 +278,6 @@ export default defineEntity({
 
     props: () => [
       { key: 'material', label: 'Вещество (общее имя — общая среда)', type: 'text' },
-      { key: 'spacing', label: 'Шаг частиц (0 — подобрать самому)', type: 'range', min: 0, max: 24, step: 1 },
       { key: 'mass', label: 'Плотность', type: 'range', min: 0.3, max: 2, step: 0.05 },
       { key: 'viscosity', label: 'Вязкость', type: 'range', min: 0, max: 1, step: 0.02 },
       { key: 'color', label: 'Цвет', type: 'color' },

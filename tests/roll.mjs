@@ -33,7 +33,7 @@ console.log('=== шар в дугообразной траншее несёт и
   let top = p.x, peak = 0, turns = 0, dir = 0
   for (let i = 0; i < 60 * 8; i++) {
     w.step(1 / 60)
-    const v = (p.x - p.px) * 120
+    const v = p.vx
     peak = Math.max(peak, Math.abs(v))
     top = Math.max(top, p.x)
     const d = Math.sign(v)
@@ -52,10 +52,10 @@ for (const [name, sm] of [['лёд 0.95', 0.95], ['камень 0.5', 0.5], ['п
   ])
   const p = of(w, 'system-ball').rt.p
   for (let i = 0; i < 30; i++) w.step(1 / 60)
-  p.px = p.x - 400 / 120   // толкнули вправо на 400 px/с
+  p.vx = 400   // толкнули вправо на 400 px/с
   let last = p.x
   for (let i = 0; i < 60 * 6; i++) { w.step(1 / 60); last = p.x }
-  console.log(`  ${name.padEnd(11)}: проехал ${(last - 200).toFixed(0)} px, скорость к концу ${((p.x - p.px) * 120).toFixed(0)} px/с`)
+  console.log(`  ${name.padEnd(11)}: проехал ${(last - 200).toFixed(0)} px, скорость к концу ${(p.vx).toFixed(0)} px/с`)
 }
 
 console.log('\n=== вершины жёсткого тела сами не крутятся ===')
@@ -81,7 +81,7 @@ for (const power of [0, 300, 520, 900]) {
   for (let x = 320; x <= 1390; x += 15) { w.pointerMove({ x, y: 600 }); w.step(1 / 60) }
   w.pointerUp({ x: 1390, y: 600 })
   const p = of(w, 'system-ball').rt.p
-  p.x = 900; p.y = 605; p.px = 900; p.py = 605; p.spin = 0   // кладём шар в траншею
+  p.x = 900; p.y = 605; p.vx = 0; p.vy = 0; p.spin = 0   // кладём шар в траншею
   for (let i = 0; i < 60; i++) w.step(1 / 60)
   const x0 = p.x
   for (let i = 0; i < 60 * 4; i++) w.step(1 / 60)

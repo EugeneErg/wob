@@ -210,7 +210,7 @@ export default defineEntity({
       rt.preview = candidatesAt(rt, ctx, rt.ghost, data)
       if (rt.state === 'drag') {
         const p = rt.p
-        p.x = pt.x; p.y = pt.y; p.px = pt.x; p.py = pt.y
+        ctx.placeAt(p, pt.x, pt.y)
       }
     },
     up(rt, ctx, pt, data) {
@@ -225,7 +225,7 @@ export default defineEntity({
         rt.links = []
       }
       // телепорт в точку, где отпустили
-      p.x = at.x; p.y = at.y; p.px = at.x; p.py = at.y
+      ctx.placeAt(p, at.x, at.y)
       p.pinned = false
 
       if (cands.length >= data.minLinks) {
@@ -326,9 +326,7 @@ function climb(rt, ctx, dt, data) {
   const a = c.link.a, b = c.link.b
   const tx = a.x + (b.x - a.x) * c.t, ty = a.y + (b.y - a.y) * c.t
   const e = c.k * c.k * (3 - 2 * c.k)
-  p.x = c.fx + (tx - c.fx) * e
-  p.y = c.fy + (ty - c.fy) * e
-  p.px = p.x; p.py = p.y
+  ctx.placeAt(p, c.fx + (tx - c.fx) * e, c.fy + (ty - c.fy) * e)
   rt.look = { x: tx - c.fx, y: ty - c.fy }
   const n = Math.hypot(rt.look.x, rt.look.y) || 1
   rt.look.x /= n; rt.look.y /= n
@@ -374,8 +372,8 @@ function roam(rt, ctx, dt, data) {
   const along = (ax, ay) => ax * tg.x + ay * tg.y     // вдоль опоры, «вбок»
   const under = (ax, ay) => ax * dn.x + ay * dn.y     // по «низу», вниз плюс
 
-  const vx = p.x - p.px, vy = p.y - p.py
-  const grounded = Math.abs(under(vx, vy)) < 1.2
+  const vx = p.vx, vy = p.vy
+  const grounded = Math.abs(under(vx, vy)) < 144
   // упёрся ногами — не катится; оторвался от земли — крутится как все
   if (grounded) ctx.setSpin(p, 0)
   const target = ctx.nearest(p, (q) => q !== p && q.attachable && q.links.length > 0)
@@ -434,15 +432,16 @@ function roam(rt, ctx, dt, data) {
     const near = Math.abs(side) < Math.max(150, p.radius + target.radius + 70)
     if (!reached && ((up < -20 && near) || wall)) {
       // прыжок — толчок против «низа», а не вверх по экрану
-      const j = (data.jump ?? 470) / 120
-      p.px = p.x + dn.x * j
-      p.py = p.y + dn.y * j
+      // прыжок теперь буквально прыжок: скорость против «низа», px/с
+      const j = data.jump ?? 470
+      p.vx = -dn.x * j
+      p.vy = -dn.y * j
       rt.cd = 0.45 + Math.random() * 0.35
     }
   }
 
   // ход: в воздухе управляем слабее, скорость ограничена
-  const v = along(vx, vy) * 120
+  const v = along(vx, vy)
   const air = grounded ? 1 : 0.3
   const cap = data.speed ?? 95
   const push = go && Math.abs(v) < cap ? go * 1400 * air * gait(rt, ctx) : 0
@@ -469,7 +468,7 @@ function drift(rt, ctx, dt, data) {
   // мягкий потолок и стены уровня
   const b = ctx.bounds
   const m = p.radius + 8
-  if (p.y < b.y + m) { const dy = p.y - p.py; p.y = b.y + m; p.py = p.y + Math.max(0, dy) }
+  if (p.y < b.y + m) { p.y = b.y + m; if (p.vy < 0) p.vy = 0 }
   if (p.x < b.x + m) { ctx.applyAccel(p, (b.x + m - p.x) * 30, 0); rt.dir = 1 }
   if (p.x > b.x + b.w - m) { ctx.applyAccel(p, (b.x + b.w - m - p.x) * 30, 0); rt.dir = -1 }
 }
@@ -512,9 +511,7 @@ function walk(rt, ctx, dt, data) {
 
   // идём ровно по связи, как по рельсу
   const a = w.from, b = other(w.link, w.from)
-  p.x = a.x + (b.x - a.x) * w.t
-  p.y = a.y + (b.y - a.y) * w.t
-  p.px = p.x; p.py = p.y
+  ctx.placeAt(p, a.x + (b.x - a.x) * w.t, a.y + (b.y - a.y) * w.t)
   p.pinned = true
 
   // но вес свой конструкции отдаём: концы связи получают его по долям.
