@@ -9,7 +9,7 @@ import builtin from '../levels/library.json' with { type: 'json' }
 const KEY = 'goo.library.v1'
 const PROGRESS = 'goo.progress.v1'
 
-export const uid = (p) => `${p}-${Math.random().toString(36).slice(2, 9)}`
+const uid = (p) => `${p}-${Math.random().toString(36).slice(2, 9)}`
 
 let cache = null
 
@@ -46,9 +46,6 @@ export const assets = () => library().assets
 
 export const chaptersOf = (storyId) =>
   (story(storyId)?.chapters || []).map(chapter).filter(Boolean)
-
-export const levelsOf = (chapterId) =>
-  (chapter(chapterId)?.nodes || []).map((n) => level(n.levelId)).filter(Boolean)
 
 // ---- создание и правка -----------------------------------------------------
 export function createStory(title = 'Новая история') {
@@ -162,12 +159,6 @@ export function removeAsset(id) {
   save()
 }
 
-export function renameAsset(id, title) {
-  const a = assets().find((x) => x.id === id)
-  if (a) { a.title = title; save() }
-  return a
-}
-
 // Горячие ассеты складываются: уровень → глава → история, дубликаты убираются
 export function hotAssets({ storyId, chapterId, levelId }) {
   const ids = [
@@ -202,7 +193,6 @@ export function markDone(levelId) {
   p[levelId] = true
   localStorage.setItem(PROGRESS, JSON.stringify(p))
 }
-export function resetProgress() { localStorage.removeItem(PROGRESS) }
 
 // Уровень открыт, если он входной (в него не ведёт ни одна тропа)
 // или пройден хотя бы один из ведущих к нему.

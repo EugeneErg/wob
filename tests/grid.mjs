@@ -83,21 +83,3 @@ const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed
   console.log(`ближайшая точка границы совпала:  ${closestSame}/${n}`)
   console.log(`поиск с ограничением совпал:      ${limitSame}/${n}`)
 }
-
-// ------------------------------------------------------------------- соседи
-{
-  const pts = []
-  for (let i = 0; i < 400; i++) pts.push({ x: rnd() * 600, y: rnd() * 400, radius: 6 })
-  const g = new PointGrid()
-  g.build(pts, 30)
-  let ok = 0
-  for (let k = 0; k < 200; k++) {
-    const x = rnd() * 600, y = rnd() * 400, r = 10 + rnd() * 40
-    const brute = pts.filter((p) => Math.hypot(p.x - x, p.y - y) <= r).length
-    let got = 0
-    g.around(x, y, r, () => got++)
-    if (brute === got) ok++
-  }
-  console.log('\n=== соседи в радиусе (это и понадобится жидкости) ===')
-  console.log(`выборка совпала с перебором: ${ok}/200`)
-}

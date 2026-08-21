@@ -43,7 +43,7 @@ import { ref } from 'vue'
 import * as lib from '../core/library.js'
 import { downloadJSON, pickJSON, pickImage, fileName, coverStyle } from '../core/fileio.js'
 
-const props = defineProps({ mode: { type: String, default: 'play' } })
+defineProps({ mode: { type: String, default: 'play' } })
 const emit = defineEmits(['back', 'open'])
 
 const list = ref(lib.stories())

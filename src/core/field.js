@@ -40,7 +40,7 @@ export function makeWell(o = {}) {
 const smooth = (t) => t * t * (3 - 2 * t)
 
 // Величина ускорения от одного источника на расстоянии r (со знаком pull)
-export function wellMagnitude(w, r) {
+function wellMagnitude(w, r) {
   if (!w.enabled || !w.pull) return 0
   if (w.range && r >= w.range) return 0
   const R = w.radius
@@ -58,7 +58,7 @@ export function wellMagnitude(w, r) {
 }
 
 // Вклад одного источника в ускорение в точке — прибавляется к out
-export function addWellAccel(w, x, y, out) {
+function addWellAccel(w, x, y, out) {
   if (!w.enabled || !w.pull) return out
   const dx = w.x - x, dy = w.y - y
   const r = Math.hypot(dx, dy)

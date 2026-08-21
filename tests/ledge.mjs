@@ -1,7 +1,7 @@
 import '../src/entities/index.js'
 import { World } from '../src/core/world.js'
-import { readFileSync } from 'fs'
-const lvl = JSON.parse(readFileSync(new URL('../src/levels/bridge.json', import.meta.url), 'utf8'))
+import { level } from './level.mjs'
+const lvl = level('lvl-bridge')
 // уносим конструкцию на правый берег, чтобы шары рвались через пропасть
 lvl.entities = lvl.entities.map((e) => {
   if (e.id === 'sb1') return { ...e, data: { ...e.data, x: 1150, y: 543, links: ['sb3'] } }

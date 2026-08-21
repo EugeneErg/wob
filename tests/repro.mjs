@@ -1,7 +1,7 @@
 import '../src/entities/index.js'
 import { World } from '../src/core/world.js'
-import { readFileSync } from 'fs'
-const lvl = JSON.parse(readFileSync(new URL('../src/levels/tower.json', import.meta.url), 'utf8'))
+import { level } from './level.mjs'
+const lvl = level('lvl-tower')
 const w = new World(structuredClone(lvl))
 const run = (n) => { for (let i = 0; i < n; i++) w.step(1 / 60) }
 const balls = () => w.instances.filter((x) => x.type === 'game-ball')

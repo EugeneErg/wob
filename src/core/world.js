@@ -1,8 +1,8 @@
 import { Physics } from './solver.js'
 import { getEntity } from './registry.js'
 import { EVENTS } from './globals.js'
-import { closestOnSegment, insideRegion, bboxOfPoints } from './geom.js'
-import { regionHas, regionDistance } from './grid.js'
+import { closestOnSegment, bboxOfPoints } from './geom.js'
+import { regionHas } from './grid.js'
 import { composeShapes } from './scene.js'
 
 let UID = 1
@@ -11,8 +11,8 @@ export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toStrin
 // Всё, что меняет мир: в редакторе этого нет, отрисовка обязана быть чистой.
 export const CONTEXT_MUTATORS = [
   'setSignal', 'shared',
-  'addPoint', 'addLink', 'addCollider', 'addBody', 'addWell', 'addPhase',
-  'removePoint', 'removeLink', 'removeCollider', 'removeWell',
+  'addPoint', 'addLink', 'addCollider', 'addBody', 'addWell',
+  'removeLink', 'removeCollider', 'removeWell',
   'setRegion', 'applyAccel', 'setMass', 'setSpin',
   'setVelocity', 'addImpulse', 'placeAt', 'setPinned',
   'emit', 'despawnSelf', 'destroy',
@@ -39,14 +39,6 @@ export class EntityContext {
   // плюс все источники притяжения. Кто их поставил — не видно, как и положено.
   gravityAt(x, y) { return this.world.physics.gravityAt(x, y, { x: 0, y: 0 }) }
 
-  // Самая узкая щель, какая может появиться на этом уровне, в пикселях.
-  //
-  // Нужна тому, у кого есть собственное разрешение расчёта, — прежде всего среде:
-  // частица должна быть настолько мельче щели, чтобы вода в неё затекала. Каждая
-  // сущность объявляет своё через необязательный def.detail(data); кто именно
-  // объявил и что это за сущность — спрашивающего не касается, он видит одно число.
-  // Так разрешение перестаёт быть настройкой в редакторе: оно следует из уровня.
-  detail() { return this.world.detail() }
   get time() { return this.world.time }
   get bounds() { return this.world.bounds }
   get pointer() { return this.world.pointer }
@@ -57,7 +49,7 @@ export class EntityContext {
   setSignal(name, value) { this.world.setSignal(name, value) }
   signal(name) { return this.world.signals.get(name) }
 
-  // Общая среда по имени: воздух, вода — то, что не принадлежит никому
+  // Общая среда по имени: воздух — то, что не принадлежит никому
   // и живёт, пока есть хоть один пользователь. Имя — такая же строка-договор,
   // как у сигналов, поэтому типы сущностей друг другу по-прежнему не видны.
   shared(name, factory) { return this.world.shared(name, factory, this.id) }
@@ -112,10 +104,6 @@ export class EntityContext {
     const i = this._wells.indexOf(w)
     if (i >= 0) this._wells.splice(i, 1)
   }
-  // Вещество: у частицы есть плотность покоя, вязкость и сцепление, и этим
-  // она отличается от обычного тела. Одинаковый key — одно вещество на всех.
-  addPhase(o) { return this.world.physics.fluid.addPhase(o) }
-  removePoint(p) { this.world.physics.removePoint(p) }
   removeCollider(c) { this.world.physics.removeCollider(c) }
   // Заменить область коллайдера — так копают песок и рушат стены
   setRegion(c, polys) { return this.world.physics.setRegion(c, polys) }
@@ -168,24 +156,6 @@ export class EntityContext {
       if (regionHas(c, x, y)) return true
     }
     return false
-  }
-
-  // Насколько свободно место: расстояние до ближайшего камня, со знаком минус
-  // внутри него. Дальше limit не ищем — за пределом ответ всё равно не нужен, а
-  // перебор кромки стоит денег.
-  //
-  // Нужно тому, у кого есть собственное разрешение расчёта: по этому полю меряется
-  // самая узкая щель в геометрии. Тип сущности, которой геометрия принадлежит, тут
-  // по-прежнему не виден — только расстояние.
-  clearance(x, y, limit = 1e6) {
-    let d = limit
-    for (const c of this.world.physics.colliders) {
-      const b = c.bbox
-      if (b && (x < b.x - d || x > b.x + b.w + d || y < b.y - d || y > b.y + b.h + d)) continue
-      const t = regionDistance(c, x, y, limit)
-      if (t < d) d = t
-    }
-    return d
   }
 
   // Кратчайший путь по графу связей до точки, удовлетворяющей pred.
@@ -352,23 +322,6 @@ export class World {
     this.frame = 0
     this.missing = []   // типы, которых нет в сборке — уровень их не потерял, но и не показал
     for (const e of level.entities || []) this.spawn(e.type, e.data, e.id, e.parent)
-  }
-
-  // Минимум по объявлениям. Считаем и по описанию уровня, и по живым инстансам:
-  // сущность, добавленная позже, тоже сужает щель, а порядок размещения при этом
-  // ничего не решает.
-  detail() {
-    let d = Infinity
-    const take = (def, data) => {
-      const v = def && def.detail && def.detail(data)
-      if (v > 0 && v < d) d = v
-    }
-    for (const e of this.level.entities || []) {
-      const def = getEntity(e.type)
-      if (def) take(def, e.data ?? def.defaults())
-    }
-    for (const inst of this.instances) take(inst.def, inst.data)
-    return d
   }
 
   shared(name, factory, ownerId) {

@@ -1,7 +1,7 @@
 import '../src/entities/index.js'
 import { World } from '../src/core/world.js'
-import { readFileSync } from 'fs'
-const lvl = JSON.parse(readFileSync(new URL('../src/levels/lift.json', import.meta.url), 'utf8'))
+import { level } from './level.mjs'
+const lvl = level('lvl-lift')
 const w = new World(structuredClone(lvl))
 let got = 0
 w.on('goal:progress', (e) => (got += e.delta))

@@ -3,8 +3,7 @@
 // Обе устроены одинаково — равномерная сетка ячеек, в каждую сложено то, что
 // её задевает своей рамкой. Отвечают они на разные вопросы:
 //
-//   PointGrid — «кто рядом с этой точкой»: пары для столкновений, а потом
-//               и соседи для ядра сглаживания у жидкости;
+//   PointGrid — «кто рядом с этой точкой»: пары для столкновений;
 //   EdgeIndex — «какое ребро области ближе всего» и «внутри ли области точка»:
 //               у песка после раскопки колец бывает на сотни вершин, и
 //               перебирать их для каждой точки нельзя.
@@ -44,14 +43,12 @@ export class PointGrid {
   // перекладыванием шесть. Хеш допускает совпадение ячеек — от этого в корзине
   // окажется лишнее, но никогда не потеряется нужное, а расстояние всё равно
   // проверяет тот, кто спросил.
-  // size — задать размер ячейки прямо. Жидкости нужна ячейка в радиус
-  // сглаживания, а не в радиус тела: соседей она ищет заметно дальше.
-  build(points, margin = 0, size = 0) {
+  build(points, margin = 0) {
     this.points = points
     const n = points.length
     let sum = 0
     for (let i = 0; i < n; i++) sum += points[i].radius
-    const c = this.cell = size > 0 ? size : Math.max(4, ((n ? sum / n : 8) + margin) * 2)
+    const c = this.cell = Math.max(4, ((n ? sum / n : 8) + margin) * 2)
 
     let slots = 64
     while (slots < n * 2) slots <<= 1
@@ -114,13 +111,12 @@ export class PointGrid {
   // Каждая пара ровно один раз. Порядок восстанавливаем сортировкой:
   // проход по парам последовательный (Гаусс — Зейдель), и от порядка зависит
   // результат — а он обязан остаться тем же, что при переборе всех пар.
-  pairs(fn, want = null) {
+  pairs(fn) {
     const pts = this.points
     const cand = this._cand
     for (let i = 0; i < pts.length; i++) {
       const a = pts[i]
-      if (!a.collision.points && !a.collision.fluid) continue
-      if (want && !want(a)) continue
+      if (!a.collision.points) continue
       this._gather(a.x, a.y, a.radius, cand, i)
       // Вставками, а не sort(): кандидатов единицы, и постоянные расходы
       // библиотечной сортировки тут дороже самой сортировки в разы.
@@ -134,19 +130,6 @@ export class PointGrid {
     }
   }
 
-  // Соседи в радиусе — этим будет пользоваться ядро сглаживания у жидкости
-  around(x, y, r, fn) {
-    const cand = this._cand
-    this._gather(x, y, r, cand)
-    const pts = this.points
-    const r2 = r * r
-    for (let k = 0; k < cand.length; k++) {
-      const p = pts[cand[k]]
-      const dx = p.x - x, dy = p.y - y
-      const d2 = dx * dx + dy * dy
-      if (d2 <= r2) fn(p, d2, cand[k])
-    }
-  }
 }
 
 // Индекс границы области. Рёбра разложены по ячейкам своей рамкой, кольца
@@ -314,27 +297,3 @@ export class EdgeIndex {
 // Одна дверь для всех, кто спрашивает «твёрдо ли здесь»: с индексом или без,
 // ответ обязан быть один и тот же.
 export const regionHas = (c, x, y) => (c.index ? c.index.inside(x, y) : insideRegion(x, y, c.polys))
-
-// Знаковое расстояние до границы области: внутри отрицательное, снаружи
-// положительное. Тем, кто считает доли клеток и граней, нужна не просто
-// принадлежность, а расстояние: по нему доля получается точной, и — главное —
-// СОГЛАСОВАННОЙ между гранью и клеткой. Пробы такой согласованности не дают:
-// грань вдоль самого края камня легко насчитывает «открыта на треть», хотя за
-// ней сплошной камень, и решатель видит там свободную поверхность внутри берега.
-export function regionDistance(c, x, y, far = 1e6) {
-  let d = far
-  if (c.index) {
-    const near = c.index.closest(x, y)
-    if (near) d = near.d
-  } else {
-    for (const ring of c.rings || []) {
-      for (let i = 0, n = ring.length; i < n; i++) {
-        const a = ring[i], b = ring[(i + 1) % n]
-        const q = closestOnSegmentInto({ x: 0, y: 0, t: 0 }, x, y, a[0], a[1], b[0], b[1])
-        const t = Math.hypot(x - q.x, y - q.y)
-        if (t < d) d = t
-      }
-    }
-  }
-  return regionHas(c, x, y) ? -d : d
-}

@@ -26,24 +26,12 @@ export function readOnlyContext(level, entity) {
     nearest: () => null,
     neighbors: () => [],
     solidAt: () => false,
-    clearance: () => Infinity,
     pathFrom: () => null,
     isBlocked: () => false,
     closestOnLinks: () => null,
     peers: () => (level.entities || [])
       .filter((o) => o.type === entity.type && o.id !== entity.id)
       .map((o) => ({ id: o.id, data: o.data, rt: null })),
-    // Самая узкая щель уровня — читается и в редакторе: показанная там укладка
-    // частиц должна совпадать с той, что будет в игре, иначе предпросмотр врёт.
-    detail: () => {
-      let d = Infinity
-      for (const e of level.entities || []) {
-        const def = getEntity(e.type)
-        const v = def && def.detail && def.detail(e.data ?? def.defaults())
-        if (v > 0 && v < d) d = v
-      }
-      return d
-    },
     peer: (id) => {
       const o = (level.entities || []).find((q) => q.id === id && q.type === entity.type)
       return o ? { id: o.id, data: o.data, rt: null } : null

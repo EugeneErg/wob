@@ -58,7 +58,6 @@ export function markSolidsRows(f, isSolid, j0 = 0, j1 = f.ny) {
   }
 }
 
-export const markSolids = (f, isSolid) => markSolidsRows(f, isSolid, 0, f.ny)
 
 // Вентилятор вливает импульс в грани горловины. Именно вливает, а не задаёт:
 // иначе два вентилятора в одном месте давали бы ту же скорость, что один.

@@ -1,8 +1,8 @@
 import '../src/entities/index.js'
 import { World } from '../src/core/world.js'
 import { EVENTS } from '../src/core/globals.js'
-import { readFileSync } from 'fs'
-const lvl = JSON.parse(readFileSync(new URL('../src/levels/hole.json', import.meta.url), 'utf8'))
+import { level } from './level.mjs'
+const lvl = level('lvl-hole')
 const w = new World(structuredClone(lvl))
 let score = 0
 w.on(EVENTS.progress, (e) => (score += e.delta))

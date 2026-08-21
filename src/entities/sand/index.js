@@ -91,11 +91,6 @@ export default defineEntity({
     up(rt) { rt.last = null },
   },
 
-  // Самая узкая щель, какую здесь можно проделать: подкоп идёт капсулой этого
-  // радиуса, значит канал выходит вдвое шире. Среда прочтёт это число и выберет
-  // себе шаг частиц так, чтобы в такой канал затекать (см. EntityContext.detail).
-  detail: (data) => 2 * (data.dig ?? 14),
-
   editor: {
     create: {
       start: () => ({ points: [], cursor: null }),

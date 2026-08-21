@@ -2,7 +2,7 @@
 // заработать в игре и в редакторе от одного импорта — и не получить при этом
 // никакого доступа к чужим сущностям.
 import '../src/entities/index.js'
-import { defineEntity, allEntities, getEntity } from '../src/core/registry.js'
+import { defineEntity, allEntities } from '../src/core/registry.js'
 import { World } from '../src/core/world.js'
 import { shapesForLevel, readOnlyContext, contextSurface } from '../src/core/scene.js'
 import { EVENTS, LAYERS } from '../src/core/globals.js'
@@ -68,9 +68,7 @@ const allowed = [
   'vx', 'vy',                          // и как быстро идёт, px/с — состояние, а не разность
   'sx', 'sy',                          // где точка была в начале подшага (служебное)
   'ax', 'ay', 'fx', 'fy', 'cn',        // силы и нормальный импульс за подшаг
-  'cux', 'cuy', 'cvx', 'cvy',          // аффинная часть скорости частицы среды (APIC)
   'spin', 'angle', 'rigid',            // вращение диска и участие в жёстком теле
-  'phase',                             // вещество (см. core/fluid.js)
   'radius', 'mass', 'lift', 'restitution', 'smoothness', 'collision',
   'attachable', 'suction', 'pinned', 'gravityScale',
   'owner', 'group', 'links', 'removed']

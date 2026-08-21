@@ -1,5 +1,4 @@
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v)
-export const lerp = (a, b, t) => a + (b - a) * t
 export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
 
 export function closestOnSegment(px, py, ax, ay, bx, by) {
