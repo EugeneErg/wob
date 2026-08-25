@@ -1,128 +1,158 @@
-// Собственный решатель. Знает только о глобальных свойствах (см. core/globals.js)
-// и ничего — о сущностях.
+// Позиционный решатель мира. Знает только о глобальных свойствах
+// (см. core/particles.js) и ничего — о сущностях.
 //
-// ЧЕМ ЭТО ОТЛИЧАЕТСЯ ОТ ПРЕЖНЕГО ВЕРЛЕ И ЗАЧЕМ
+// ЧТО ЗДЕСЬ ЗА АЛГОРИТМ И ПОЧЕМУ ИМЕННО ОН
 //
-// В верле скорости нет: она вычисляется как разность двух положений, x − px.
-// Пока мир состоит из палок и шаров, это удобно — любая позиционная поправка
-// сама превращается в изменение скорости, и импульс сохраняется даром. Но у
-// такой записи есть обратная сторона: НЕЛЬЗЯ подвинуть тело, не разогнав его.
-// Телепорт неотличим от разгона, всякая перестановка тела молча превращается в
-// удар, а закреплённой точке приходится возить свою скорость в отдельном поле.
+// Подшаг устроен так:
 //
-// Вторая беда — единицы. x − px это смещение за подшаг, а не px/с: сопротивление
-// воздуха и гашение задавались долями на подшаг, и их сила молча менялась вместе
-// с частотой подшагов.
+//   1. внешние силы → скорость          v ← (v + a·h)·затухание
+//   2. предсказание                     s ← x,  x ← x + v·h
+//   3. поиск соседей                    (один раз на подшаг, с запасом)
+//   4. K раз: спроецировать ограничения x ← x + Δx
+//   5. скорость из положений            v ← (x − s)/h
+//   6. проход по скоростям              упругость, трение, вязкость, завихрение
 //
-// Поэтому здесь скорость — состояние:
+// Это буквально Algorithm 1 из Position Based Fluids (Macklin & Müller, 2013).
+// Разница с прежним ядром не в том, что тут другая математика — она та же
+// самая, XPBD, — а в том, что шаги 4 и 6 больше не зашиты в решатель списком
+// вызовов. Ограничение стало объектом с четырьмя методами, и цикл идёт по
+// списку модулей. Плотность среды — такое же ограничение на положения, как
+// связь: у связи C = |x_a − x_b| − rest, у среды C = ρ/ρ₀ − 1. Ей нужны от мира
+// ровно те же две вещи: место в цикле проекции и место в проходе по скоростям.
 //
-//   p.vx, p.vy   настоящая скорость, px/с, не зависит от величины подшага
-//   p.sx, p.sy   положение в начале подшага (служебное)
+// Поэтому «интегрировать воду» больше не значит «пристроить сбоку второй
+// решатель со своим шагом». Значит — включить модуль в тот же список. Вода
+// расталкивается с шарами по обратным массам просто потому, что находится
+// внутри одного цикла с ними, и Архимед получается сам, без единого слова о нём.
 //
-// Позиционные ограничения решаются по-прежнему (XPBD), и в конце подшага скорость
-// берётся как (x − sx)/h — то есть всякая поправка переносит импульс, ровно как в
-// верле. Отдельного сорта «поправка без импульса» здесь НЕТ: она сохраняет
-// кинетическую энергию, но не потенциальную, и подъём тела против тяжести берёт
-// энергию из ниоткуда.
+// ЧТО ИЗМЕНИЛОСЬ ПО СРАВНЕНИЮ С ПРЕЖНИМ ЯДРОМ
+//
+//   • состояние частиц лежит в типизированных массивах (core/particles.js),
+//     объект остался только у игровых точек — иначе тысяча частиц среды
+//     стоила бы тысячу объектов и промахов по кэшу;
+//   • появились ЖИВУЩИЕ списки соседей (core/nsearch.js): PBF ходит по
+//     окружению по три-четыре раза за подшаг, пересобирать его каждый раз
+//     дороже самой физики;
+//   • поправки умеют накапливаться по Якоби (store.accum/flush), а не только
+//     применяться на месте по Гауссу — Зейделю. Плотность иначе не решается:
+//     она связывает частицу разом со всеми соседями;
+//   • нормальный импульс контакта стал настоящим множителем ограничения
+//     (lamN), а не служебным полем cn.
+//
+// Скорость по-прежнему СОСТОЯНИЕ (px/с), а не разность двух положений.
+// В верле нельзя подвинуть тело, не разогнав его: телепорт неотличим от удара,
+// а доли-на-подшаг молча меняют смысл вместе с частотой подшагов.
 
-import { clamp, closestOnSegmentInto, insideRegion, ringsOf, bboxOfRings } from './geom.js'
-import { PointGrid, EdgeIndex, PAIRS_MIN, EDGES_MIN } from './grid.js'
+import { clamp, ringsOf, bboxOfRings } from './geom.js'
+import { EdgeIndex, EDGES_MIN } from './grid.js'
 import { GravityField } from './field.js'
+import { ParticleStore, Point, F_PINNED, F_WORLD, F_POINTS } from './particles.js'
+import { DistanceConstraints } from './constraints/distance.js'
+import { ShapeMatching } from './constraints/shape.js'
+import { Contacts } from './constraints/contact.js'
 
 let UID = 1
 const nid = (p) => p + UID++
 
-// Во сколько раз сопротивление качению меньше трения скольжения при той же
-// шершавости. У катка по грунту это примерно одна десятая, у стального шара
-// по стали — на два порядка меньше; берём середину и позволяем гладкости
-// поверхности развести эти случаи.
-const ROLL_RESIST = 0.08
-
 export class Physics {
   constructor(opts = {}) {
+    this.store = new ParticleStore(opts.capacity ?? 1024)
+
     // Гравитация — поле, а не вектор: однородная составляющая уровня плюс
     // сколько угодно источников притяжения (см. core/field.js).
     this.field = new GravityField({ x: 0, y: 1800, ...(opts.gravity || {}) })
     this._g = { x: 0, y: 0 }
-    this.grid = new PointGrid()   // широкая фаза: кто с кем вообще может встретиться
-    this._push = (a, b) => this._pushApart(a, b)
-    this._seg = { x: 0, y: 0, t: 0 }                       // рабочие объекты контакта:
-    this._hit = { q: null, x: 0, y: 0, qx: 0, qy: 0, d: 0, edge: 0, t: 0 }  // создавать их в цикле дорого
-    // Сопротивление среды — теперь скорость затухания в 1/с, а не множитель на
-    // подшаг: v ← v·e^(−drag·h). От величины подшага результат больше не зависит.
+
+    // Сопротивление среды — скорость затухания в 1/с, а не множитель на подшаг:
+    // от величины подшага результат не зависит.
     this.drag = opts.drag ?? 0.072
+
+    // Мелкий подшаг и мало итераций сходится лучше, чем крупный шаг и много
+    // итераций: жёсткость перестаёт зависеть от числа итераций, а ошибка падает
+    // как h², а не как 1/K. Для среды это важнее, чем для связей.
+    this.fixed = opts.fixed ?? 1 / 120
     this.iterations = opts.iterations ?? 3
-    this.fixed = 1 / 120
-    this.maxSub = 8
+    this.maxSub = opts.maxSub ?? 8
     this._acc = 0
 
-    this.points = []
     this.links = []
-    this.colliders = []
     this.bodies = []
+    this.colliders = []
+    this.substep = 0
+
+    this._points = []
+    this._pgen = -1
+
+    // Конвейер ограничений. Порядок задаётся полем order; состав меняется
+    // снаружи — этим и отличается «условно PBF-движок» от движка, к которому
+    // PBF пришит сбоку.
+    this.modules = []
+    this.use(new DistanceConstraints())
+    this.use(new ShapeMatching())
+    this.use(new Contacts())
   }
 
-  // Прежняя настройка задавалась множителем на подшаг 1/120. Оставляем вход,
-  // но переводим в скорость затухания: уровни и проверки не переписывать.
+  use(mod) {
+    this.modules.push(mod)
+    this.modules.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    mod.attach?.(this)
+    return mod
+  }
+  module(name) { return this.modules.find((m) => m.name === name) }
+
+  // Прежняя настройка задавалась множителем на подшаг 1/120. Вход оставлен.
   get damping() { return Math.exp(-this.drag / 120) }
   set damping(v) { this.drag = v > 0 && v < 1 ? -Math.log(v) * 120 : 0 }
 
-  // Однородная составляющая поля. Раньше это была вся гравитация целиком,
-  // поэтому имя осталось прежним: уровень задаёт её одним вектором.
   get gravity() { return this.field.uniform }
   set gravity(v) { this.field.uniform = { x: v?.x || 0, y: v?.y || 0 } }
 
-  // ---- источники притяжения ------------------------------------------------
   addWell(o) { return this.field.add(o) }
   removeWell(w) { this.field.remove(w) }
-  // Ускорение свободного падения именно здесь — «низ» у каждой точки свой
   gravityAt(x, y, out) { return this.field.at(x, y, out) }
+
+  // Игровые точки — те, у которых есть ручка. Частицы среды сюда не попадают:
+  // сущность не должна перебирать пять тысяч капель воды, чтобы найти шар.
+  get points() {
+    if (this._pgen !== this.store.gen) {
+      const s = this.store
+      const out = []
+      for (let i = 0; i < s.n; i++) { const h = s.handle[i]; if (h) out.push(h) }
+      this._points = out
+      this._pgen = s.gen
+    }
+    return this._points
+  }
 
   // ---- точки ---------------------------------------------------------------
   addPoint(o = {}) {
-    const x = o.x || 0
-    const y = o.y || 0
-    // отрицательный вес — это подъёмная сила: инерция остаётся, гравитация переворачивается
-    let mass = o.mass ?? 1
-    let gravityScale = o.gravityScale ?? 1
-    if (mass < 0) { gravityScale = -gravityScale; mass = -mass }
-    mass = Math.max(mass, 0.05)
-    const p = {
-      id: nid('p'),
-      x, y,
-      vx: o.vx || 0, vy: o.vy || 0,   // скорость, px/с — состояние, а не разность
-      sx: x, sy: y,   // где точка была в начале подшага
-      ax: 0, ay: 0,   // ускорение от сущностей (живёт весь кадр)
-      fx: 0, fy: 0,   // сила от связей (пересчитывается каждый подшаг)
-      cn: 0,          // нормальный импульс контакта за подшаг, px/с
-      // глобальные свойства
-      radius: o.radius ?? 8,
-      mass,
-      lift: (o.mass ?? 1) < 0,
-      restitution: o.restitution ?? 0.2,   // упругость
-      smoothness: o.smoothness ?? 0.5,     // гладкость: 1 — лёд, 0 — липучка
-      collision: {                         // коллизия
-        world: o.collision?.world ?? true, // со статической геометрией
-        points: o.collision?.points ?? true, // с другими точками
-      },
-      attachable: o.attachable ?? false,   // можно ли прилепить связь
-      suction: o.suction ?? 0,             // всасывание
-      // Точка — это диск радиуса radius, а у диска есть момент инерции ½mr².
-      // Поэтому трение её крутит: spin — угловая скорость (рад/с),
-      // angle — накопленный поворот. Отдельного «умеет катиться» нет: катится
-      // всё круглое. Не крутится в одиночку только вершина жёсткого тела —
-      // за её вращение отвечает само тело (см. rigid).
-      spin: 0,
-      angle: 0,
-      rigid: 0,   // в скольких жёстких телах состоит: пока состоит — сама не крутится
-      pinned: !!o.pinned,
-      gravityScale,
-      owner: o.owner || null,              // id инстанса-владельца
-      group: o.group || o.owner || null,   // сборка: внутри неё не сталкиваются
-      links: [],
-      removed: false,
-    }
-    this.points.push(p)
+    const s = this.store
+    const i = s.alloc()
+    const p = new Point(s, i, nid('p'))
+    s.handle[i] = p
+
+    s.x[i] = o.x || 0; s.y[i] = o.y || 0
+    s.sx[i] = s.x[i]; s.sy[i] = s.y[i]
+    s.vx[i] = o.vx || 0; s.vy[i] = o.vy || 0
+    s.radius[i] = o.radius ?? 8
+    s.rest[i] = o.restitution ?? 0.2
+    s.smooth[i] = o.smoothness ?? 0.5
+    // отрицательный вес — подъёмная сила: инерция та же, гравитация наоборот
+    s.setMass(i, o.mass ?? 1)
+    s.gscale[i] = (o.gravityScale ?? 1) * ((o.mass ?? 1) < 0 ? -1 : 1)
+
+    let f = s.flags[i]
+    if (o.collision?.world === false) f &= ~F_WORLD
+    if (o.collision?.points === false) f &= ~F_POINTS
+    if (o.pinned) f |= F_PINNED
+    s.flags[i] = f
+    if (o.pinned) s.w[i] = 0
+    s.group[i] = s.groups.id(o.group || o.owner || null)
+
+    // приватное для игры, не физическое: живёт на ручке
+    p.attachable = o.attachable ?? false
+    p.suction = o.suction ?? 0
+    p.owner = o.owner || null
     return p
   }
 
@@ -131,40 +161,24 @@ export class Physics {
     for (const b of this.bodies) if (b.verts.includes(p)) this.detachFromBody(b, [p])
     for (const l of [...p.links]) this.removeLink(l)
     p.removed = true
-    const i = this.points.indexOf(p)
-    if (i >= 0) this.points.splice(i, 1)
+    this.store.free(p._i)
   }
 
-  applyAccel(p, ax, ay) { p.ax += ax; p.ay += ay }
-
-  // Скорость теперь можно задать прямо — раньше для этого приходилось двигать
-  // «прошлое положение», и телепорт был неотличим от разгона.
-  setVelocity(p, vx, vy) { p.vx = vx; p.vy = vy }
-  addImpulse(p, ix, iy) { if (!p.pinned) { p.vx += ix / p.mass; p.vy += iy / p.mass } }
+  applyAccel(p, ax, ay) { const s = this.store, i = p._i; s.ax[i] += ax; s.ay[i] += ay }
+  setVelocity(p, vx, vy) { const s = this.store, i = p._i; s.vx[i] = vx; s.vy[i] = vy }
+  addImpulse(p, ix, iy) {
+    const s = this.store, i = p._i
+    if (s.w[i]) { s.vx[i] += ix * s.w[i]; s.vy[i] += iy * s.w[i] }
+  }
   // Переставить тело, не разгоняя его: положение меняется, скорость — нет.
   place(p, x, y, keepVelocity = false) {
-    p.x = x; p.y = y; p.sx = x; p.sy = y
-    if (!keepVelocity) { p.vx = 0; p.vy = 0 }
+    const s = this.store, i = p._i
+    s.x[i] = x; s.y[i] = y; s.sx[i] = x; s.sy[i] = y
+    if (!keepVelocity) { s.vx[i] = 0; s.vy[i] = 0 }
   }
-  // Закрепить/отпустить. Закреплённая точка не интегрируется, её скорость —
-  // то, что ей задали снаружи; поэтому при закреплении её надо обнулить, иначе
-  // трение о неё будет тащить груз по памяти о прошлом движении.
-  setPinned(p, on) {
-    p.pinned = !!on
-    if (on) { p.vx = 0; p.vy = 0 }
-  }
-
-  // Вес можно менять по ходу игры; знак так же означает подъёмную силу
-  setMass(p, m) {
-    p.lift = m < 0
-    p.mass = Math.max(Math.abs(m), 0.05)
-    p.gravityScale = p.lift ? -1 : 1
-  }
-
-  // Вращение можно задать снаружи: живое тело держит себя само — ползущий шар
-  // упирается и не катится, хотя круглый. Это его дело, а не свойство физики.
-  // Угловая скорость в рад/с, как и всё остальное.
-  setSpin(p, w) { p.spin = w }
+  setPinned(p, on) { this.store.setPinned(p._i, on) }
+  setMass(p, m) { this.store.setMass(p._i, m) }
+  setSpin(p, w) { this.store.spin[p._i] = w }
 
   // ---- связи ---------------------------------------------------------------
   addLink(a, b, o = {}) {
@@ -172,10 +186,10 @@ export class Physics {
       id: nid('l'), a, b,
       rest: o.rest ?? Math.hypot(a.x - b.x, a.y - b.y),
       spring: o.spring ?? 2500,        // сила на пиксель растяжения
-      damping: clamp(o.damping ?? 0.2, 0, 1), // доля гасимой скорости вдоль связи
-      breakForce: o.breakForce ?? Infinity,   // рвётся, когда натяжение превысит порог
-      lambda: 0,                       // множитель ограничения за подшаг
-      tension: 0,                      // натяжение (сила), сглаженное
+      damping: clamp(o.damping ?? 0.2, 0, 1),
+      breakForce: o.breakForce ?? Infinity,
+      lambda: 0,
+      tension: 0,
       visible: o.visible !== false,
       width: o.width ?? 5,
       color: o.color || null,
@@ -195,36 +209,31 @@ export class Physics {
     const i = this.links.indexOf(l); if (i >= 0) this.links.splice(i, 1)
   }
 
-  // ---- жёсткая форма (вращается) -------------------------------------------
-  // Подгонка формы: каждый подшаг ищем оптимальные поворот и сдвиг исходной
-  // формы и подтягиваем к ним вершины. Даёт настоящее твёрдое тело с вращением,
-  // не засоряя граф связей.
+  // ---- жёсткая форма -------------------------------------------------------
   addBody(o = {}) {
-    const verts = [...(o.points || [])]  // своя копия: тело может дорастать
-    let cx = 0, cy = 0, m = 0
-    for (const p of verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
-    if (m) { cx /= m; cy /= m }
+    const verts = [...(o.points || [])]
     const b = {
-      id: nid('b'),
-      verts,
-      rest: verts.map((p) => ({ x: p.x - cx, y: p.y - cy })),
+      id: nid('b'), verts, rest: null,
       stiffness: clamp(o.stiffness ?? 1, 0, 1),
       removed: false,
     }
     for (const p of verts) p.rigid++
+    this._rebase(b)
     this.bodies.push(b)
     return b
   }
 
-  // Прирастить точки к телу: их текущее расположение становится частью формы
+  _rebase(b) {
+    let cx = 0, cy = 0, m = 0
+    for (const p of b.verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
+    if (m) { cx /= m; cy /= m }
+    b.rest = b.verts.map((p) => ({ x: p.x - cx, y: p.y - cy }))
+  }
+
   attachToBody(b, points) {
     if (!b || !points.length) return
     for (const p of points) if (!b.verts.includes(p)) { b.verts.push(p); p.pinned = false; p.rigid++ }
-    let cx = 0, cy = 0, m = 0
-    for (const p of b.verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
-    if (!m) return
-    cx /= m; cy /= m
-    b.rest = b.verts.map((p) => ({ x: p.x - cx, y: p.y - cy }))
+    this._rebase(b)
   }
 
   detachFromBody(b, points) {
@@ -242,42 +251,13 @@ export class Physics {
     const i = this.bodies.indexOf(b); if (i >= 0) this.bodies.splice(i, 1)
   }
 
-  _solveBodies() {
-    for (const b of this.bodies) {
-      const n = b.verts.length
-      if (n < 2) continue
-      let cx = 0, cy = 0, m = 0
-      for (const p of b.verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
-      if (!m) continue
-      cx /= m; cy /= m
-      let num = 0, den = 0
-      for (let i = 0; i < n; i++) {
-        const q = b.rest[i], p = b.verts[i]
-        const dx = p.x - cx, dy = p.y - cy
-        num += q.x * dy - q.y * dx
-        den += q.x * dx + q.y * dy
-      }
-      const th = Math.atan2(num, den)
-      const co = Math.cos(th), si = Math.sin(th)
-      for (let i = 0; i < n; i++) {
-        const p = b.verts[i]
-        if (p.pinned) continue
-        const q = b.rest[i]
-        const gx = cx + q.x * co - q.y * si
-        const gy = cy + q.x * si + q.y * co
-        p.x += (gx - p.x) * b.stiffness
-        p.y += (gy - p.y) * b.stiffness
-      }
-    }
-  }
-
   // ---- статическая геометрия ----------------------------------------------
   addCollider(o = {}) {
     const c = {
       id: nid('c'),
       verts: o.verts ? [...o.verts] : null,        // если заданы — геометрия живая
       points: o.verts ? o.verts.map((p) => [p.x, p.y]) : (o.points || []),
-      polys: null,                                  // мультиполигон: область может быть с дырками
+      polys: null,
       smoothness: o.smoothness ?? 0.5,
       restitution: o.restitution ?? 0.1,
       owner: o.owner || null,
@@ -290,14 +270,11 @@ export class Physics {
     return c
   }
 
-  // Заменить область коллайдера (песок после раскопки, разрушаемая стена и т. д.)
   setRegion(c, polys) {
     c.polys = polys
     c.rings = ringsOf(polys)
     c.points = c.rings[0] || []
     c.bbox = bboxOfRings(c.rings)
-    // У песка после раскопки кольца бывают на сотни вершин — тогда границу
-    // индексируем. Восьми вершинам рельефа индекс дороже перебора.
     let n = 0
     for (const r of c.rings) n += r.length
     c.index = n > EDGES_MIN ? new EdgeIndex(polys) : null
@@ -321,329 +298,61 @@ export class Physics {
       n++
     }
     if (n === this.maxSub) this._acc = 0
-    for (const p of this.points) { p.ax = 0; p.ay = 0 }
+    const s = this.store
+    s.ax.fill(0, 0, s.n)
+    s.ay.fill(0, 0, s.n)
   }
 
-  // Подшаг. Порядок здесь и есть главная разница с верле: сначала силы кладутся
-  // в скорость, и только затем перенос и позиционные ограничения.
   _sub(h) {
+    const s = this.store
+    const n = s.n
     const g = this._g
     const kd = Math.exp(-this.drag * h)
+    this.substep++
 
-    // 1. силы → скорость. Закреплённую не трогаем: её скорость задают снаружи.
-    for (const p of this.points) {
-      if (p.pinned) continue
-      // поле спрашиваем в том месте, где точка сейчас: у каждой свой «низ»
-      this.field.at(p.x, p.y, g)
-      p.vx = (p.vx + (g.x * p.gravityScale + p.ax) * h) * kd
-      p.vy = (p.vy + (g.y * p.gravityScale + p.ay) * h) * kd
+    // 1. силы → скорость; 2. предсказание.
+    // Закреплённую не интегрируем: её скорость задают снаружи (рельсы, мотор),
+    // и она нужна контакту как скорость поверхности.
+    const X = s.x, Y = s.y, SX = s.sx, SY = s.sy, VX = s.vx, VY = s.vy
+    for (let i = 0; i < n; i++) {
+      SX[i] = X[i]; SY[i] = Y[i]
+      s.lamN[i] = 0
+      if (!s.w[i]) continue
+      // поле спрашиваем там, где частица сейчас: у каждой свой «низ»
+      this.field.at(X[i], Y[i], g)
+      VX[i] = (VX[i] + (g.x * s.gscale[i] + s.ax[i]) * h) * kd
+      VY[i] = (VY[i] + (g.y * s.gscale[i] + s.ay[i]) * h) * kd
+      X[i] += VX[i] * h
+      Y[i] += VY[i] * h
     }
 
-    // 2. перенос
-    for (const p of this.points) {
-      p.sx = p.x; p.sy = p.y
-      p.cn = 0
-      if (p.pinned) continue
-      p.x += p.vx * h
-      p.y += p.vy * h
+    // 3. соседи — один раз на подшаг, с запасом
+    for (const m of this.modules) m.prepare?.(this, h)
+
+    // 4. проекция ограничений
+    for (let it = 0; it < this.iterations; it++) {
+      for (const m of this.modules) m.project?.(this, h, it)
     }
 
-    // 3. позиционные ограничения
-    for (const l of this.links) l.lambda = 0
-    this._rebuildGrid()
-    for (let i = 0; i < this.iterations; i++) {
-      this._solveLinks(h)
-      this._solveBodies()
-      this._solvePairs()
-      this._syncColliders()
-      this._collide(h)
-    }
-
-    // 4. скорость из положений. Любая позиционная поправка — связь, контакт,
-    //    расталкивание — переносит импульс, как ей и полагается.
+    // 5. скорость из положений. Любая позиционная поправка — связь, контакт,
+    //    давление среды — переносит импульс, как ей и полагается.
     const inv = 1 / h
-    for (const p of this.points) {
-      if (p.pinned) continue
-      p.vx = (p.x - p.sx) * inv
-      p.vy = (p.y - p.sy) * inv
+    for (let i = 0; i < n; i++) {
+      if (!s.w[i]) continue
+      VX[i] = (X[i] - SX[i]) * inv
+      VY[i] = (Y[i] - SY[i]) * inv
     }
 
-    // 5. контакты по скорости: упругость, трение, качение
-    this._contactVelocity(h)
-    this._dampLinks()
+    // 6. проход по скоростям: упругость, трение, качение, вязкость, завихрение
+    for (const m of this.modules) m.velocity?.(this, h)
 
-    // 5a. накопленный поворот — чтобы вращение было видно на экране
-    for (const p of this.points) {
-      if (p.rigid || p.pinned) { p.spin = 0; continue }
-      p.angle += p.spin * h
+    // накопленный поворот — чтобы вращение было видно на экране
+    const SP = s.spin, AN = s.angle
+    for (let i = 0; i < n; i++) {
+      if (s.rigid[i] || !s.w[i]) { SP[i] = 0; continue }
+      AN[i] += SP[i] * h
     }
 
-    // 6. натяжение = сила в связи; сглаживаем, чтобы не рвать от случайного всплеска
-    let broken = null
-    const k = 1 / (h * h)
-    for (const l of this.links) {
-      const f = Math.max(0, -l.lambda * k)
-      l.tension += (f - l.tension) * 0.05
-      if (l.tension > l.breakForce) (broken ||= []).push(l)
-    }
-    if (broken) for (const l of broken) this.removeLink(l)
-  }
-
-  // Податливое ограничение (XPBD): позиционная коррекция с податливостью
-  // 1/spring. Устойчиво при любой жёсткости, связь растягивается пропорционально
-  // нагрузке, а lambda даёт настоящую силу.
-  _solveLinks(h) {
-    const inv = 1 / (h * h)
-    for (const l of this.links) {
-      const { a, b } = l
-      const w1 = a.pinned ? 0 : 1 / a.mass
-      const w2 = b.pinned ? 0 : 1 / b.mass
-      const w = w1 + w2
-      if (!w) continue
-      const dx = b.x - a.x, dy = b.y - a.y
-      const d = Math.hypot(dx, dy) || 1e-9
-      const nx = dx / d, ny = dy / d
-      const C = d - l.rest
-      const alpha = inv / l.spring
-      const dl = (-C - alpha * l.lambda) / (w + alpha)
-      l.lambda += dl
-      a.x -= nx * dl * w1; a.y -= ny * dl * w1
-      b.x += nx * dl * w2; b.y += ny * dl * w2
-    }
-  }
-
-  // Гашение — фильтр скорости, а не сила: не может накачать энергию.
-  // Теперь буквально фильтр скорости, а не сдвиг «прошлого положения».
-  _dampLinks() {
-    for (const l of this.links) {
-      if (!l.damping) continue
-      const { a, b } = l
-      const w1 = a.pinned ? 0 : 1 / a.mass
-      const w2 = b.pinned ? 0 : 1 / b.mass
-      const w = w1 + w2
-      if (!w) continue
-      const dx = b.x - a.x, dy = b.y - a.y
-      const d = Math.hypot(dx, dy) || 1e-9
-      const nx = dx / d, ny = dy / d
-      const vrel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny
-      const k = l.damping * vrel
-      a.vx += (k * nx * w1) / w; a.vy += (k * ny * w1) / w
-      b.vx -= (k * nx * w2) / w; b.vy -= (k * ny * w2) / w
-    }
-  }
-
-  // Расталкивание двух тел. Проход последовательный: каждая пара видит уже
-  // исправленные предыдущими положения — поэтому порядок пар важен и сетка
-  // обязана отдавать их в том же порядке, что и перебор всех со всеми.
-  _pushApart(a, b) {
-    if (!a.collision.points || !b.collision.points) return
-    const dx = b.x - a.x, dy = b.y - a.y
-    const min = a.radius + b.radius
-    if (Math.abs(dx) > min || Math.abs(dy) > min) return
-    const d = Math.hypot(dx, dy)
-    if (d >= min || d < 1e-9) return
-    const ima = a.pinned ? 0 : 1 / a.mass
-    const imb = b.pinned ? 0 : 1 / b.mass
-    const s = ima + imb
-    if (!s) return
-    const push = (min - d) / d
-    const ax = -dx * push * (ima / s), ay = -dy * push * (ima / s)
-    const bx = dx * push * (imb / s), by = dy * push * (imb / s)
-    a.x += ax; a.y += ay
-    b.x += bx; b.y += by
-  }
-
-  // Сетку перекладываем раз на подшаг, а не на каждую итерацию: за итерацию
-  // тела сдвигаются на доли пикселя, и запас в несколько пикселей гарантирует,
-  // что в кандидатах окажется всё, что могло сойтись. Лишнее в списке
-  // безвредно — расстояние всё равно проверяется точно.
-  _rebuildGrid() {
-    if (this.points.length < PAIRS_MIN) return
-    this.grid.build(this.points, 6)
-  }
-
-  _solvePairs() {
-    const pts = this.points
-    if (pts.length < PAIRS_MIN) {
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i]
-        if (!a.collision.points) continue
-        for (let j = i + 1; j < pts.length; j++) this._pushApart(a, pts[j])
-      }
-      return
-    }
-    this.grid.pairs(this._push)
-  }
-
-  _syncColliders() {
-    for (const c of this.colliders) {
-      if (!c.dynamic) continue
-      for (let i = 0; i < c.verts.length; i++) {
-        c.points[i][0] = c.verts[i].x
-        c.points[i][1] = c.verts[i].y
-      }
-      c.bbox = bboxOfRings(c.rings)
-      if (c.index) c.index.build(c.polys)
-      c.stamp++
-    }
-  }
-
-  // Позиционная часть контакта. Со статикой просто выталкиваем,
-  // с живым телом делим поправку по обратным массам — тело получает отдачу.
-  //
-  // Разлипание частицы среды со СТАТИКОЙ импульса не несёт: нормальную скорость
-  // ей погасит скоростная часть, а выталкивание здесь — следствие того, что её
-  // подпихнули соседи. В верле разделить это было нечем, и каждый такой пиксель
-  // уходил в решатель давления как выдуманная скорость.
-  _collide(h) {
-    const inv = 1 / h
-    for (const p of this.points) {
-      if (p.pinned || !p.collision.world) continue
-      for (const c of this.colliders) {
-        if (c.group && c.group === p.group) continue // внутри одной сборки не толкаемся
-        const ct = this._contact(p, c)
-        if (!ct) continue
-        if (!c.dynamic) {
-          const tx = ct.qx + ct.nx * p.radius, ty = ct.qy + ct.ny * p.radius
-          const dx = tx - p.x, dy = ty - p.y
-          p.cn += Math.hypot(dx, dy) * inv
-          p.x = tx; p.y = ty
-          continue
-        }
-        const a = c.verts[ct.i], b = c.verts[(ct.i + 1) % c.verts.length]
-        const t = ct.t
-        const wp = 1 / p.mass
-        const wa = a.pinned ? 0 : 1 / a.mass
-        const wb = b.pinned ? 0 : 1 / b.mass
-        const we = (1 - t) * (1 - t) * wa + t * t * wb
-        const sum = wp + we
-        if (!sum) continue
-        const d = Math.min(ct.depth, 16) // разлипаем постепенно, а не рывком
-        p.cn += d * (wp / sum) * inv
-        p.x += ct.nx * d * (wp / sum); p.y += ct.ny * d * (wp / sum)
-        if (wa) { a.x -= ct.nx * d * ((1 - t) * wa) / sum; a.y -= ct.ny * d * ((1 - t) * wa) / sum }
-        if (wb) { b.x -= ct.nx * d * (t * wb) / sum; b.y -= ct.ny * d * (t * wb) / sum }
-      }
-    }
-  }
-
-  // Скоростная часть контакта: упругость по нормали, гладкость по касательной
-  _contactVelocity(h) {
-    for (const p of this.points) {
-      if (p.pinned || !p.collision.world) continue
-      for (const c of this.colliders) {
-        if (c.group && c.group === p.group) continue
-        const ct = this._contact(p, c, 0.5)
-        if (!ct) continue
-        const { nx, ny } = ct
-        let sx = 0, sy = 0
-        if (c.dynamic) { // скорость самой поверхности в точке касания
-          const a = c.verts[ct.i], b = c.verts[(ct.i + 1) % c.verts.length]
-          sx = a.vx * (1 - ct.t) + b.vx * ct.t
-          sy = a.vy * (1 - ct.t) + b.vy * ct.t
-        }
-        const vx = p.vx - sx, vy = p.vy - sy
-        const vn = vx * nx + vy * ny
-
-        const rest = (p.restitution + c.restitution) * 0.5
-        // гладкость 0 — шершавая поверхность, 1 — лёд.
-        const avg = clamp((p.smoothness + c.smoothness) * 0.5, 0, 1)
-        const mu = 1 - avg
-        const tx = -ny, ty = nx
-        const vt = vx * tx + vy * ty
-        const nvn = vn < 0 ? -vn * rest : vn
-        // Кулоново трение: касательную скорость гасит не постоянная доля, а сила,
-        // пропорциональная нормальному импульсу. Сам импульс берём из позиционной
-        // коррекции — к этому месту нормальная скорость уже погашена ею же.
-        const j = p.cn + (vn < 0 ? -vn * (1 + rest) : 0)
-        let nvt
-        if (!p.rigid && p.radius > 1e-3) {
-          // Свободный диск катится. Трение действует не на центр, а на точку касания:
-          // проскальзывание там равно vt − ω·r. Импульс J меняет и скорость (J/m),
-          // и вращение (−J·r/I); для диска I = ½mr², поэтому проскальзывание
-          // убывает втрое быстрее скорости центра. Пока сцепления хватает, оно
-          // обнуляется — дальше шар катится без потерь и несёт инерцию по дуге.
-          const slip = vt - p.spin * p.radius
-          const sg = slip < 0 ? -1 : slip > 0 ? 1 : 0
-          const dv = Math.min(Math.abs(slip) / 3, mu * j)
-          nvt = vt - sg * dv
-          p.spin += (sg * dv * 2) / p.radius
-
-          // Сопротивление качению. Шар и опора мнутся в пятне контакта, и
-          // отпускает она его позади центра — получается тормозящий момент.
-          // Он тем больше, чем мягче и шершавее поверхность, то есть та же
-          // гладкость, что задаёт скольжение: по льду катится долго, по песку
-          // встаёт быстро. Считается относительно самой опоры, поэтому на
-          // едущей платформе оно не тормозит груз, а постепенно разгоняет его
-          // до её скорости. Тормозит ход и вращение сразу, поэтому качение
-          // не срывается в проскальзывание.
-          const brake = Math.min(Math.abs(nvt), mu * ROLL_RESIST * j)
-          if (brake > 0) {
-            const rs = nvt < 0 ? -1 : 1
-            nvt -= rs * brake
-            p.spin -= (rs * brake) / p.radius
-          }
-        } else {
-          const drop = Math.min(Math.abs(vt), mu * j)
-          nvt = vt - Math.sign(vt) * drop
-        }
-        p.vx = nvn * nx + nvt * tx + sx
-        p.vy = nvn * ny + nvt * ty + sy
-      }
-    }
-  }
-
-  // Ближайшая точка границы и внешняя нормаль, если тело её касается
-  _contact(p, c, slack = 0) {
-    const rings = c.rings
-    if (!rings || !rings.length) return null
-    const bb = c.bbox
-    if (p.x + p.radius < bb.x || p.x - p.radius > bb.x + bb.w) return null
-    if (p.y + p.radius < bb.y || p.y - p.radius > bb.y + bb.h) return null
-
-    // Граница области — это все её кольца, включая дырки. У крупных областей
-    // спрашиваем индекс, у мелких перебираем: ответ обязан быть один и тот же.
-    const closest = c.index ? (x, y, limit) => c.index.closest(x, y, limit) : (x, y) => {
-      const s = this._seg, out = this._hit
-      let best = Infinity, edge = 0
-      out.q = null
-      for (const ring of rings) {
-        for (let i = 0, n = ring.length; i < n; i++) {
-          const a = ring[i], b = ring[(i + 1) % n]
-          closestOnSegmentInto(s, x, y, a[0], a[1], b[0], b[1])
-          const d = Math.hypot(x - s.x, y - s.y)
-          if (d < best) { best = d; out.qx = s.x; out.qy = s.y; out.q = out; edge = i; out.t = s.t }
-        }
-      }
-      out.x = out.qx; out.y = out.qy
-      out.d = best; out.edge = edge
-      return out
-    }
-    const has = c.index ? (x, y) => c.index.inside(x, y) : (x, y) => insideRegion(x, y, c.polys)
-
-    // Снаружи граница интересна только в пределах своего радиуса — этим
-    // ограничением индекс живёт одним просмотром вместо расширяющегося поиска.
-    const inside = has(p.x, p.y)
-    const near = inside ? closest(p.x, p.y) : closest(p.x, p.y, p.radius + slack)
-    if (!near || !near.q) return null
-    let { q, d, edge, t } = near
-    if (!inside && d >= p.radius + slack) return null
-
-    let nx, ny
-    if (inside && !has(p.sx, p.sy)) {
-      // влетел за один подшаг — выталкиваем туда, откуда пришёл
-      const prev = closest(p.sx, p.sy)
-      q = prev.q; edge = prev.edge; t = prev.t
-      const dx = p.sx - q.x, dy = p.sy - q.y
-      const len = Math.hypot(dx, dy) || 1e-9
-      nx = dx / len; ny = dy / len
-    } else if (d < 1e-6) { nx = 0; ny = -1 }
-    else {
-      nx = (p.x - q.x) / d; ny = (p.y - q.y) / d
-      if (inside) { nx = -nx; ny = -ny }
-    }
-
-    const depth = inside ? p.radius + d : p.radius - d
-    return { qx: q.x, qy: q.y, nx, ny, depth, i: edge, t }
+    for (const m of this.modules) m.finish?.(this, h)
   }
 }

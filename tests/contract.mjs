@@ -67,7 +67,7 @@ const allowed = [
   'id', 'x', 'y',                      // где тело сейчас
   'vx', 'vy',                          // и как быстро идёт, px/с — состояние, а не разность
   'sx', 'sy',                          // где точка была в начале подшага (служебное)
-  'ax', 'ay', 'fx', 'fy', 'cn',        // силы и нормальный импульс за подшаг
+  'ax', 'ay',                          // силы за кадр
   'spin', 'angle', 'rigid',            // вращение диска и участие в жёстком теле
   'radius', 'mass', 'lift', 'restitution', 'smoothness', 'collision',
   'attachable', 'suction', 'pinned', 'gravityScale',

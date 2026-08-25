@@ -1,37 +1,60 @@
 // Широкая фаза не имеет права менять ответ — только скорость. Поэтому
 // проверяем не «похоже», а совпадение с честным перебором: тот же список пар
 // в том же порядке и тот же ответ про границу в каждой пробе.
-import { PointGrid, EdgeIndex } from '../src/core/grid.js'
+import { EdgeIndex } from '../src/core/grid.js'
+import { HashGrid } from '../src/core/nsearch.js'
 import { insideRegion, closestOnSegment } from '../src/core/geom.js'
 
 let seed = 20250805
 const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff }
 
 // ------------------------------------------------------------------ пары тел
+// Сетка не имеет права менять ответ — только скорость. Проход по парам
+// последовательный (Гаусс — Зейдель), поэтому важен и сам список, и порядок.
 {
-  const pts = []
-  for (let i = 0; i < 700; i++) {
-    pts.push({ x: rnd() * 1600, y: rnd() * 900, radius: 3 + rnd() * 25, collision: { points: rnd() > 0.05 } })
+  const N = 700
+  const store = {
+    n: N,
+    x: new Float32Array(N),
+    y: new Float32Array(N),
+    radius: new Float32Array(N),
   }
+  for (let i = 0; i < N; i++) {
+    store.x[i] = rnd() * 1600
+    store.y[i] = rnd() * 900
+    store.radius[i] = 3 + rnd() * 25
+  }
+  const ids = new Int32Array(N)
+  for (let i = 0; i < N; i++) ids[i] = i
+
+  const hit = (i, j) => {
+    const min = store.radius[i] + store.radius[j]
+    return !(Math.abs(store.x[j] - store.x[i]) > min || Math.abs(store.y[j] - store.y[i]) > min)
+  }
+
   const brute = []
-  for (let i = 0; i < pts.length; i++) {
-    if (!pts[i].collision.points) continue
-    for (let j = i + 1; j < pts.length; j++) {
-      const a = pts[i], b = pts[j]
-      const min = a.radius + b.radius
-      if (Math.abs(b.x - a.x) > min || Math.abs(b.y - a.y) > min) continue
-      brute.push(i + ':' + j)
-    }
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) if (hit(i, j)) brute.push(i + ':' + j)
   }
-  const g = new PointGrid()
-  g.build(pts)
-  const idx = new Map(pts.map((p, i) => [p, i]))
+
+  let sum = 0
+  for (let i = 0; i < N; i++) sum += store.radius[i]
+  const g = new HashGrid()
+  g.build(store, ids, ((sum / N) + 6) * 2, null, 6)
+
   const got = []
-  g.pairs((a, b) => {
-    const min = a.radius + b.radius
-    if (Math.abs(b.x - a.x) > min || Math.abs(b.y - a.y) > min) return
-    got.push(idx.get(a) + ':' + idx.get(b))
-  })
+  const cand = []
+  for (let a = 0; a < N; a++) {
+    g.gather(store.x[a], store.y[a], store.radius[a], cand, a)
+    for (let u = 1; u < cand.length; u++) {
+      const v = cand[u]
+      let b = u - 1
+      while (b >= 0 && cand[b] > v) { cand[b + 1] = cand[b]; b-- }
+      cand[b + 1] = v
+    }
+    for (let u = 0; u < cand.length; u++) if (hit(a, cand[u])) got.push(a + ':' + cand[u])
+  }
+
   console.log('=== пары тел ===')
   console.log(`перебор нашёл ${brute.length} пар, сетка — ${got.length}`)
   console.log(`списки совпали, включая порядок: ${brute.join() === got.join()}`)

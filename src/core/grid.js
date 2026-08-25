@@ -1,136 +1,21 @@
-// Широкая фаза: две сетки, чтобы солвер перестал перебирать всё со всем.
+// Индекс границы области: «какое ребро ближе всего» и «внутри ли точка».
+// У песка после раскопки колец бывает на сотни вершин, и перебирать их для
+// каждой точки нельзя.
 //
-// Обе устроены одинаково — равномерная сетка ячеек, в каждую сложено то, что
-// её задевает своей рамкой. Отвечают они на разные вопросы:
+// Индекс честно возвращает надмножество кандидатов: может отдать лишнее (хеш
+// допускает совпадение ячеек), но не может потерять нужное. Поэтому проверку
+// расстояния делает вызывающий.
 //
-//   PointGrid — «кто рядом с этой точкой»: пары для столкновений;
-//   EdgeIndex — «какое ребро области ближе всего» и «внутри ли области точка»:
-//               у песка после раскопки колец бывает на сотни вершин, и
-//               перебирать их для каждой точки нельзя.
-//
-// Обе честно возвращают надмножество кандидатов: сетка может отдать лишнее
-// (ячейки крупнее тел, хеш допускает совпадения), но не может потерять нужное.
-// Поэтому проверку расстояния делает вызывающий — как и делал раньше.
+// Сетка тел живёт отдельно, в core/nsearch.js: у неё другой вопрос и другой
+// срок жизни.
 
 import { closestOnSegmentInto, insideRegion } from './geom.js'
 
 const hash = (cx, cy) => (((cx * 92837111) ^ (cy * 689287499)) >>> 0)
 
-// Ниже этого числа тел перебор всех пар дешевле сетки, и главное — он в
-// точности тот же, что был. Мелкие уровни ничего не замечают.
-export const PAIRS_MIN = 64
-// То же для области: у рельефа из восьми вершин индекс не окупается.
+// Ниже этого числа вершин индекс не окупается: у рельефа из восьми вершин
+// перебор быстрее и, что важнее, буквально тот же.
 export const EDGES_MIN = 24
-
-export class PointGrid {
-  constructor() {
-    this.points = []
-    this.cell = 16
-    this.mask = 0
-    this.start = new Int32Array(0)   // начало корзины в items (схема CSR)
-    this.items = new Int32Array(0)
-    this.cursor = new Int32Array(0)
-    this.mark = new Int32Array(0)
-    this.q = 0
-    this._cand = []
-  }
-
-  // Ячейку берём по среднему радиусу: крупное тело просто ляжет в несколько
-  // ячеек, а мелкая крошка не заставит перебирать полсцены в одной.
-  //
-  // Корзины — не словарь, а два целочисленных массива: сначала считаем, сколько
-  // в какую попадёт, потом раскладываем. Ни одного объекта за кадр, а кадров с
-  // перекладыванием шесть. Хеш допускает совпадение ячеек — от этого в корзине
-  // окажется лишнее, но никогда не потеряется нужное, а расстояние всё равно
-  // проверяет тот, кто спросил.
-  build(points, margin = 0) {
-    this.points = points
-    const n = points.length
-    let sum = 0
-    for (let i = 0; i < n; i++) sum += points[i].radius
-    const c = this.cell = Math.max(4, ((n ? sum / n : 8) + margin) * 2)
-
-    let slots = 64
-    while (slots < n * 2) slots <<= 1
-    if (this.start.length !== slots + 1) {
-      this.start = new Int32Array(slots + 1)
-      this.cursor = new Int32Array(slots)
-    } else this.start.fill(0)
-    if (this.mark.length < n) this.mark = new Int32Array(Math.max(n, 64)).fill(-1)
-    const mask = this.mask = slots - 1
-    const start = this.start
-
-    let total = 0
-    for (let i = 0; i < n; i++) {
-      const p = points[i]
-      const r = p.radius + margin
-      const x0 = Math.floor((p.x - r) / c), x1 = Math.floor((p.x + r) / c)
-      const y0 = Math.floor((p.y - r) / c), y1 = Math.floor((p.y + r) / c)
-      for (let cy = y0; cy <= y1; cy++) {
-        for (let cx = x0; cx <= x1; cx++) { start[(hash(cx, cy) & mask) + 1]++; total++ }
-      }
-    }
-    for (let k = 0; k < slots; k++) start[k + 1] += start[k]
-    this.cursor.set(start.subarray(0, slots))
-    if (this.items.length < total) this.items = new Int32Array(Math.max(total, 256))
-    const items = this.items, cursor = this.cursor
-    for (let i = 0; i < n; i++) {
-      const p = points[i]
-      const r = p.radius + margin
-      const x0 = Math.floor((p.x - r) / c), x1 = Math.floor((p.x + r) / c)
-      const y0 = Math.floor((p.y - r) / c), y1 = Math.floor((p.y + r) / c)
-      for (let cy = y0; cy <= y1; cy++) {
-        for (let cx = x0; cx <= x1; cx++) items[cursor[hash(cx, cy) & mask]++] = i
-      }
-    }
-  }
-
-  // Индексы тел, чьи рамки задевают круг (x, y, r). Дубли снимаются меткой:
-  // одно тело лежит в нескольких ячейках, но кандидатом станет один раз.
-  _gather(x, y, r, out, skipUpTo = -1) {
-    const c = this.cell, mask = this.mask
-    const start = this.start, items = this.items, mark = this.mark
-    const x0 = Math.floor((x - r) / c), x1 = Math.floor((x + r) / c)
-    const y0 = Math.floor((y - r) / c), y1 = Math.floor((y + r) / c)
-    const q = ++this.q
-    out.length = 0
-    for (let cy = y0; cy <= y1; cy++) {
-      for (let cx = x0; cx <= x1; cx++) {
-        const h = hash(cx, cy) & mask
-        for (let k = start[h], e = start[h + 1]; k < e; k++) {
-          const j = items[k]
-          if (j <= skipUpTo || mark[j] === q) continue
-          mark[j] = q
-          out.push(j)
-        }
-      }
-    }
-    return out
-  }
-
-  // Каждая пара ровно один раз. Порядок восстанавливаем сортировкой:
-  // проход по парам последовательный (Гаусс — Зейдель), и от порядка зависит
-  // результат — а он обязан остаться тем же, что при переборе всех пар.
-  pairs(fn) {
-    const pts = this.points
-    const cand = this._cand
-    for (let i = 0; i < pts.length; i++) {
-      const a = pts[i]
-      if (!a.collision.points) continue
-      this._gather(a.x, a.y, a.radius, cand, i)
-      // Вставками, а не sort(): кандидатов единицы, и постоянные расходы
-      // библиотечной сортировки тут дороже самой сортировки в разы.
-      for (let a2 = 1; a2 < cand.length; a2++) {
-        const v = cand[a2]
-        let b = a2 - 1
-        while (b >= 0 && cand[b] > v) { cand[b + 1] = cand[b]; b-- }
-        cand[b + 1] = v
-      }
-      for (let k = 0; k < cand.length; k++) fn(a, pts[cand[k]])
-    }
-  }
-
-}
 
 // Индекс границы области. Рёбра разложены по ячейкам своей рамкой, кольца
 // пронумерованы — поэтому и «внутри ли» считается тем же самым правилом
