@@ -335,7 +335,7 @@ export class World {
   constructor(level) {
     this.level = level
     this.bounds = { x: 0, y: 0, w: level.width || 1600, h: level.height || 900 }
-    this.physics = new Physics({ gravity: level.gravity || { x: 0, y: 1800 } })
+    this.physics = new Physics({ gravity: level.gravity || { x: 0, y: 1800 }, bounds: this.bounds })
     this.instances = []
     this.time = 0
     this._listeners = {}

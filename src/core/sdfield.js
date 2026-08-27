@@ -114,11 +114,23 @@ export class StaticField {
     this.stat = stat
     if (!stat.length) { this.ready = false; return }
 
-    const cell = this.cell
+    let cell = this.cell
     const pad = cell * 2
     const x0 = bounds.x - pad, y0 = bounds.y - pad
-    const nx = Math.ceil((bounds.w + pad * 2) / cell) + 1
-    const ny = Math.ceil((bounds.h + pad * 2) / cell) + 1
+    let nx = Math.ceil((bounds.w + pad * 2) / cell) + 1
+    let ny = Math.ceil((bounds.h + pad * 2) / cell) + 1
+    // Потолок на число клеток. Рамка приходит снаружи, и если она вдруг
+    // окажется огромной — например, геометрия уехала за пределы мира, — сетка
+    // без этого разрастётся до сотен мегабайт, и сборка встанет на секунды.
+    // Лучше загрубить шаг, чем повесить кадр.
+    const MAX = 200000
+    if (nx * ny > MAX) {
+      const k = Math.sqrt((nx * ny) / MAX)
+      cell *= k
+      nx = Math.ceil((bounds.w + pad * 2) / cell) + 1
+      ny = Math.ceil((bounds.h + pad * 2) / cell) + 1
+    }
+    this.cell = cell
     this.x0 = x0; this.y0 = y0; this.nx = nx; this.ny = ny
     this.far = maxDist + cell * 2
 
@@ -176,7 +188,10 @@ export class StaticField {
         if (dx * dx + dy * dy >= best * best) continue
       }
       if (c.index) {
-        const near = c.index.closest(x, y, 0)
+        // Ограничиваем поиск: дальше far расстояние всё равно упрётся в
+        // потолок. Без ограничения запрос обходит ВСЁ тело, и на исковерянном
+        // копанием песке с сотнями дырок сборка поля растягивается на секунды.
+        const near = c.index.closest(x, y, best < this.far ? best : this.far)
         if (near && near.d < best) { best = near.d; this._hit = c }
         continue
       }
