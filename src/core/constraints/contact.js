@@ -15,6 +15,7 @@
 import { clamp, closestOnSegmentInto, insideRegion } from '../geom.js'
 import { HashGrid, PAIRS_MIN } from '../nsearch.js'
 import { F_POINTS, F_WORLD, F_FLUID } from '../particles.js'
+import { StaticField } from '../sdfield.js'
 
 // Во сколько раз сопротивление качению меньше трения скольжения при той же
 // шершавости. У катка по грунту это примерно одна десятая, у стального шара по
@@ -26,11 +27,60 @@ const ROLL_RESIST = 0.08
 // расходиться постепенно, а не выстреливать.
 const MAX_DEPTH = 16
 
+// Рамка, которую должно накрыть поле: объединение всех неподвижных тел.
+function boundsOf(phys) {
+  // Мир, а не рамка тел: за её пределами поля нет, а частицы туда попадают —
+  // вода стоит НАД полом, и её выносило бы за край поля.
+  if (phys.bounds) return phys.bounds
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const c of phys.colliders) {
+    const b = c.bbox
+    if (!b) continue
+    if (b.x < x0) x0 = b.x
+    if (b.y < y0) y0 = b.y
+    if (b.x + b.w > x1) x1 = b.x + b.w
+    if (b.y + b.h > y1) y1 = b.y + b.h
+  }
+  if (x0 === Infinity) return { x: 0, y: 0, w: 1, h: 1 }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+// Отбор точек — отдельной функцией по той же причине, что и циклы подшага:
+// внутри большого prepare тот же самый проход идёт на порядок медленнее.
+//
+//   solid — кто участвует в парах. Берём и тех, кто с телами не сталкивается,
+//     но в среде тонет: ходячий шар нарочно проходит сквозь другие шары, а
+//     проваливаться сквозь воду не должен;
+//   src — кто пары ИЩЕТ. Контакт симметричен, пару довольно найти с одной
+//     стороны, а частицы среды друг с другом не сталкиваются вовсе —
+//     расстояние им держит давление. Шар найдёт их сам, в сетке они остаются.
+const _st = { k: 0, q: 0, reach: 0, sumR: 0 }
+function collect(s, solid, src, coh) {
+  const FL = s.flags, GR = s.group, RD = s.radius, RC = s.reach, n = s.n
+  const anyCoh = coh.size > 0
+  let k = 0, q = 0, reach = 0, sumR = 0
+  for (let i = 0; i < n; i++) {
+    if (!(FL[i] & (F_POINTS | F_FLUID))) continue
+    solid[k] = i
+    sumR += RD[i]
+    const r = RC[i]
+    if (r > reach) reach = r
+    if (!(anyCoh && coh.has(GR[i]))) src[q++] = k
+    k++
+  }
+  _st.k = k; _st.q = q; _st.reach = reach; _st.sumR = sumR
+  return _st
+}
+
 export class Contacts {
   constructor() {
     this.name = 'contacts'
     this.order = 40
     this.grid = new HashGrid()
+    // Поле расстояний до неподвижной геометрии. Нужно тем, кто спрашивает её
+    // тысячами запросов в кадр, — частицам среды. Телам оставляем точный путь
+    // по полигонам: их единицы, и менять им поведение незачем.
+    this.field = new StaticField(8)
     this.solid = new Int32Array(0)   // все, кто участвует в парах
     this.solidCount = 0
     this.src = new Int32Array(0)     // из них — те, кто пары ИЩЕТ
@@ -47,20 +97,7 @@ export class Contacts {
     // пока её не сбросишь, а тела за подшаг разъезжаются.
     s.bs.fill(1e9, 0, s.n)
     if (this.solid.length < s.n) this.solid = new Int32Array(Math.max(s.n, 64))
-    let k = 0
-    for (let i = 0; i < s.n; i++) {
-      // Берём и тех, кто с телами не сталкивается, но в среде тонет: ходячий
-      // шар нарочно проходит сквозь другие шары, а проваливаться сквозь воду
-      // не должен. Это разные вопросы, и флаги у них разные.
-      if (!(s.flags[i] & (F_POINTS | F_FLUID))) continue
-      this.solid[k++] = i
-    }
-    this.solidCount = k
-    // Кто ИЩЕТ пары. Контакт симметричен, поэтому пару достаточно найти с
-    // одной стороны. Частицы среды друг с другом не сталкиваются вовсе —
-    // расстояние им держит давление, — значит искать им незачем: шар найдёт их
-    // сам. В сетке они при этом остаются, иначе их бы никто не нашёл.
-    // Замерено: поиск пар для 1200 частиц стоил 6.5 мс вхолостую.
+    if (this.src.length < s.n) this.src = new Int32Array(Math.max(s.n, 64))
     // Группы частиц среды. Читаем их здесь, а не при заведении среды: группу
     // точке мир переустанавливает при привязке сущности, и раньше этого
     // момента она ещё не та.
@@ -69,25 +106,26 @@ export class Contacts {
     for (const m of phys.mediums) {
       for (const p of m.points) { if (!p.removed) { coh.add(s.group[p._i]); break } }
     }
-    if (this.src.length < s.n) this.src = new Int32Array(Math.max(s.n, 64))
-    let q = 0
-    for (let a = 0; a < k; a++) {
-      const i = this.solid[a]
-      if (coh.size && coh.has(s.group[i])) continue
-      this.src[q++] = a
-    }
-    this.srcCount = q
+    const st = collect(s, this.solid, this.src, coh)
+    const k = st.k
+    this.solidCount = k
+    this.srcCount = st.q
     // Группу коллайдера интернируем один раз на подшаг: в горячем цикле
     // сравниваются числа, а не строки.
     for (const c of phys.colliders) c._gid = s.groups.id(c.group)
+    // Поле пересобирается, только если неподвижная геометрия изменилась —
+    // мир сообщает об этом сам, увеличивая метку коллайдера.
+    const reach = st.reach
+    this.useField = reach > 0 && this.field.sync(phys.colliders, boundsOf(phys), reach + 8)
+    this._anyDynamic = phys.colliders.some((c) => c.dynamic && !c.removed)
     // Сетку перекладываем раз на подшаг, а не на каждую итерацию: за итерацию
     // тела сдвигаются на доли пикселя, и запас в несколько пикселей
     // гарантирует, что в кандидатах окажется всё, что могло сойтись.
+    // Если искать пары некому, сетка не нужна вовсе.
     if (k >= PAIRS_MIN) {
-      let sum = 0
-      for (let m = 0; m < k; m++) sum += s.radius[this.solid[m]]
-      this.grid.build(s, this.solid.subarray(0, k), ((sum / k) + 6) * 2, null, 6)
-    }
+      this.grid.build(s, this.solid.subarray(0, k), ((st.sumR / k) + 6) * 2, null, 6)
+      this.gridReady = true
+    } else this.gridReady = false
   }
 
   project(phys, h, it = 0) {
@@ -187,10 +225,56 @@ export class Contacts {
     const s = phys.store
     const inv = 1 / h
     const X = s.x, Y = s.y, W = s.w, F = s.flags, R = s.radius
+    // Поле читаем прямо здесь, а не вызовом: вызов с массивом-ответом стоил
+    // больше самой выборки — 124 нс на точку вместо десятка операций.
+    const fld = this.useField ? this.field : null
+    const FD = fld ? fld.d : null, FSM = fld ? fld.sm : null
+    const fnx = fld ? fld.nx : 0, fny = fld ? fld.ny : 0
+    const fx0 = fld ? fld.x0 : 0, fy0 = fld ? fld.y0 : 0
+    const finv = fld ? 1 / fld.cell : 0
+    const anyDyn = this._anyDynamic
     for (let i = 0; i < s.n; i++) {
       if (!W[i] || !(F[i] & F_WORLD)) continue
       const gi = s.group[i]
       const reach = s.reach[i]
+      // Частица среды спрашивает поле, а не полигоны: тот же ответ за две
+      // операции вместо проверки принадлежности и поиска ближайшего ребра.
+      if (reach > 0 && fld) {
+        const px = (X[i] - fx0) * finv, py = (Y[i] - fy0) * finv
+        let cx = px | 0, cy = py | 0
+        if (cx < 0) cx = 0; else if (cx > fnx - 2) cx = fnx - 2
+        if (cy < 0) cy = 0; else if (cy > fny - 2) cy = fny - 2
+        const tx = px - cx, ty = py - cy
+        const kk = cy * fnx + cx
+        const d00 = FD[kk], d10 = FD[kk + 1], d01 = FD[kk + fnx], d11 = FD[kk + fnx + 1]
+        const ta = d00 + (d10 - d00) * tx, tb = d01 + (d11 - d01) * tx
+        const dist = ta + (tb - ta) * ty
+        let gx = (d10 - d00) * (1 - ty) + (d11 - d01) * ty
+        let gy = (d01 - d00) * (1 - tx) + (d11 - d10) * tx
+        const gl = Math.sqrt(gx * gx + gy * gy)
+        if (gl < 1e-9) { gx = 0; gy = -1 } else { gx /= gl; gy /= gl }
+        if (it === 0 && dist < s.bs[i]) {
+          s.bs[i] = dist > 0 ? dist : 0
+          s.bnx[i] = gx; s.bny[i] = gy
+          s.brg[i] = 1 - FSM[kk]
+        }
+        if (dist < R[i]) {
+          const push = R[i] - dist
+          X[i] += gx * push; Y[i] += gy * push
+          s.lamN[i] += push * inv
+        }
+        // Неподвижную геометрию поле уже закрыло. Подвижную, если она есть,
+        // по-прежнему обходим точно — её мало.
+        if (!anyDyn) continue
+      }
+      // Кто знает расстояние до ближайшей поверхности (то есть щупает её
+      // издалека) и заведомо до неё не достаёт — коллайдеры не обходит.
+      // Внутри подшага частица сдвигается на доли пикселя, запас в пиксель
+      // это покрывает с избытком.
+      // Кто знает расстояние до ближайшей поверхности и заведомо до неё не
+      // достаёт — коллайдеры не обходит. Внутри подшага частица сдвигается на
+      // доли пикселя, запас в пиксель это покрывает.
+      if (it > 0 && reach > 0 && s.bs[i] > R[i] + 1) continue
       const sense0 = it === 0 && reach > 0
       const far = R[i] + (sense0 ? reach : 0)
       const xi = X[i], yi = Y[i]
@@ -199,8 +283,10 @@ export class Contacts {
       // но платили за вызов метода и за итератор по коллайдерам. Индексный
       // цикл и проверка на месте убирают эту плату.
       const cols = phys.colliders
+      const skipStatic = reach > 0 && fld
       for (let ci = 0; ci < cols.length; ci++) {
         const c = cols[ci]
+        if (skipStatic && !c.dynamic) continue
         if (gi && c._gid === gi) continue
         const bb = c.bbox
         if (!bb || !c.rings || !c.rings.length) continue
@@ -257,6 +343,9 @@ export class Contacts {
     const VX = s.vx, VY = s.vy, W = s.w, F = s.flags, R = s.radius
     for (let i = 0; i < s.n; i++) {
       if (!W[i] || !(F[i] & F_WORLD)) continue
+      // Не коснулся — не трётся. Расстояние до ближайшей поверхности уже
+      // найдено проекцией, и заново опрашивать геометрию незачем.
+      if (s.reach[i] > 0 && s.bs[i] > R[i] + 0.5) continue
       const gi = s.group[i]
       for (const c of phys.colliders) {
         if (gi && c._gid === gi) continue

@@ -55,6 +55,61 @@ import { FluidDensity, makeMedium, sameSubstance } from './constraints/fluid.js'
 let UID = 1
 const nid = (p) => p + UID++
 
+// Горячие циклы подшага вынесены из него отдельными функциями.
+//
+// Не ради красоты: замерено, что тот же самый цикл отдельно идёт 10 нс на
+// точку, а внутри _sub — 211. Разница в двадцать раз и не в алгоритме. _sub
+// большой, и в нём вызовы модулей разной формы; целиком его оптимизировать
+// не выходит, а вместе с ним теряют в скорости и простые циклы по соседству.
+// Каждая из этих функций мала и однородна, и оптимизируется сама по себе.
+
+// Силы → скорость, скорость → предсказанное положение.
+// Закреплённую не интегрируем: её скорость задают снаружи (рельсы, мотор), и
+// она нужна контакту как скорость поверхности.
+function predict(s, n, h, kd, field, g) {
+  const X = s.x, Y = s.y, SX = s.sx, SY = s.sy, VX = s.vx, VY = s.vy
+  const LN = s.lamN, WW = s.w, GS = s.gscale, AX = s.ax, AY = s.ay
+  // Когда источников притяжения нет, «низ» у всех один и спрашивать его у
+  // каждой точки незачем.
+  const wells = field.wells.length
+  const ux = field.uniform.x, uy = field.uniform.y
+  for (let i = 0; i < n; i++) {
+    SX[i] = X[i]; SY[i] = Y[i]
+    LN[i] = 0
+    if (!WW[i]) continue
+    let gx = ux, gy = uy
+    if (wells) {
+      // поле спрашиваем там, где частица сейчас: у каждой свой «низ»
+      field.at(X[i], Y[i], g)
+      gx = g.x; gy = g.y
+    }
+    const gsi = GS[i]
+    VX[i] = (VX[i] + (gx * gsi + AX[i]) * h) * kd
+    VY[i] = (VY[i] + (gy * gsi + AY[i]) * h) * kd
+    X[i] += VX[i] * h
+    Y[i] += VY[i] * h
+  }
+}
+
+// Скорость из положений. Любая позиционная поправка — связь, контакт, давление
+// среды — так переносит импульс, как ей и полагается.
+function derive(s, n, inv) {
+  const X = s.x, Y = s.y, SX = s.sx, SY = s.sy, VX = s.vx, VY = s.vy, WW = s.w
+  for (let i = 0; i < n; i++) {
+    if (!WW[i]) continue
+    VX[i] = (X[i] - SX[i]) * inv
+    VY[i] = (Y[i] - SY[i]) * inv
+  }
+}
+
+function spin(s, n, h) {
+  const SP = s.spin, AN = s.angle, RG = s.rigid, WW = s.w
+  for (let i = 0; i < n; i++) {
+    if (RG[i] || !WW[i]) { SP[i] = 0; continue }
+    AN[i] += SP[i] * h
+  }
+}
+
 export class Physics {
   constructor(opts = {}) {
     this.store = new ParticleStore(opts.capacity ?? 1024)
@@ -71,6 +126,10 @@ export class Physics {
     // Мелкий подшаг и мало итераций сходится лучше, чем крупный шаг и много
     // итераций: жёсткость перестаёт зависеть от числа итераций, а ошибка падает
     // как h², а не как 1/K. Для среды это важнее, чем для связей.
+    // Границы мира. Нужны тем, кто раскладывает пространство по сетке: рамки
+    // одних лишь тел мало — за её пределами ответа не будет, а частицы туда
+    // попадают запросто.
+    this.bounds = opts.bounds || null
     this.fixed = opts.fixed ?? 1 / 120
     this.iterations = opts.iterations ?? 3
     this.maxSub = opts.maxSub ?? 8
@@ -361,30 +420,8 @@ export class Physics {
     // Все массивы — в локальные. Пока это свойства хранилища, их приходится
     // перечитывать на каждой точке: замерено 425 нс на точку там, где работы
     // на десяток операций.
-    const X = s.x, Y = s.y, SX = s.sx, SY = s.sy, VX = s.vx, VY = s.vy
-    const LN = s.lamN, WW = s.w, GS = s.gscale, AX = s.ax, AY = s.ay
-    // Когда источников притяжения нет, «низ» у всех один и спрашивать его у
-    // каждой точки незачем.
-    const wells = this.field.wells.length
-    const ug = this.field.uniform
-    for (let i = 0; i < n; i++) {
-      SX[i] = X[i]; SY[i] = Y[i]
-      LN[i] = 0
-      if (!WW[i]) continue
-      let gx = ug.x, gy = ug.y
-      if (wells) {
-        // поле спрашиваем там, где частица сейчас: у каждой свой «низ»
-        this.field.at(X[i], Y[i], g)
-        gx = g.x; gy = g.y
-      }
-      const gsi = GS[i]
-      VX[i] = (VX[i] + (gx * gsi + AX[i]) * h) * kd
-      VY[i] = (VY[i] + (gy * gsi + AY[i]) * h) * kd
-      X[i] += VX[i] * h
-      Y[i] += VY[i] * h
-    }
+    predict(s, n, h, kd, this.field, this._g)
 
-    // 3. соседи — один раз на подшаг, с запасом
     for (const m of this.modules) m.prepare?.(this, h)
 
     // 4. проекция ограничений
@@ -394,22 +431,13 @@ export class Physics {
 
     // 5. скорость из положений. Любая позиционная поправка — связь, контакт,
     //    давление среды — переносит импульс, как ей и полагается.
-    const inv = 1 / h
-    for (let i = 0; i < n; i++) {
-      if (!WW[i]) continue
-      VX[i] = (X[i] - SX[i]) * inv
-      VY[i] = (Y[i] - SY[i]) * inv
-    }
+    derive(s, n, 1 / h)
 
     // 6. проход по скоростям: упругость, трение, качение, вязкость, завихрение
     for (const m of this.modules) m.velocity?.(this, h)
 
     // накопленный поворот — чтобы вращение было видно на экране
-    const SP = s.spin, AN = s.angle
-    for (let i = 0; i < n; i++) {
-      if (s.rigid[i] || !s.w[i]) { SP[i] = 0; continue }
-      AN[i] += SP[i] * h
-    }
+    spin(s, n, h)
 
     for (const m of this.modules) m.finish?.(this, h)
   }

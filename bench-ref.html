@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Стенд: исходник</title>
+<style>
+  body{margin:0;background:#11151a;color:#cfd8e3;font:13px/1.5 system-ui,sans-serif}
+  #wrap{display:flex;gap:12px;padding:12px}
+  svg{background:#0c1015;border:1px solid #223}
+  #side{width:280px}
+  button{width:100%;padding:8px;margin:4px 0;background:#2b6cb0;color:#fff;border:0;border-radius:4px;cursor:pointer}
+  button.g{background:#2f855a}
+  pre{background:#0c1015;border:1px solid #223;padding:8px;font-size:11px;white-space:pre-wrap;max-height:340px;overflow:auto}
+  b{color:#8fd}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <svg id="view" width="1600" height="900" viewBox="0 0 1600 900"></svg>
+  <div id="side">
+    <div><b>Стенд: исходник</b></div>
+    <pre id="stat">запуск…</pre>
+    <button id="go" class="g">Замерить 20 с</button>
+    <button id="dump">Сохранить отчёт</button>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<script type="module">
+import { FluidSolver, SurfaceMesher, bulkFieldValue } from './ref-core.js'
+import { BENCH, PX, Recorder } from './bench-common.js'
+
+const B = BENCH, S = B.solver
+// Исходник считает в метрах. Переводим уровень один в один: 250 px в метре.
+const m = (px) => px / PX
+const SPACING = m(B.grain)
+const H_RADIUS = SPACING * 2.6
+const G = B.gravity / PX
+
+const sim = new FluidSolver({
+  maxParticles: 20000, h: H_RADIUS, spacing: SPACING,
+  width: m(B.W), height: m(B.H),
+})
+sim.gx = 0; sim.gy = G
+sim.iters = S.iters
+sim.omega = S.omega
+sim.relax = S.relax
+sim.tension = S.tension
+sim.tensile = S.tensile
+sim.viscosity = S.viscosity
+// Когезия и смачивание — в долях тяжести, как и в движке.
+sim.cohesion = S.cohesionG * G
+sim.adhesion = S.adhesionG * G
+sim.film = S.film
+sim.vorticity = S.vorticity
+sim.friction = S.friction
+sim.surfLevel = S.surfLevel
+
+// ---- тот же уровень --------------------------------------------------------
+// Четыре стены по периметру и песчаная плита — теми же координатами, что в
+// движке. Исходник описывает тела прямоугольниками через центр и полуразмер.
+const boxOf = (x0, y0, x1, y1) => ({
+  k: 'box', kind: 'static', a: 0,
+  x: m((x0 + x1) / 2), y: m((y0 + y1) / 2),
+  hw: m((x1 - x0) / 2), hh: m((y1 - y0) / 2),
+  vx: 0, vy: 0,
+})
+const w = B.wall
+sim.colliders = [
+  boxOf(0, 0, B.W, w),
+  boxOf(0, B.H - w, B.W, B.H),
+  boxOf(0, w, w, B.H - w),
+  boxOf(B.W - w, w, B.W, B.H - w),
+  boxOf(B.sand.x, B.sand.y, B.sand.x + B.sand.w, B.sand.y + B.sand.h),
+]
+
+// ---- налив -----------------------------------------------------------------
+// Гексагональная укладка, тот же порядок обхода, что у сущности жидкости:
+// сверху вниз, со смещением нечётных рядов.
+;(function fill() {
+  const d = SPACING, dy = d * Math.sqrt(3) / 2
+  const x0 = m(B.water.x), y0 = m(B.water.y)
+  const x1 = m(B.water.x + B.water.w), y1 = m(B.water.y + B.water.h)
+  const solid = (x, y) => {
+    for (const c of sim.colliders) {
+      if (Math.abs(x - c.x) <= c.hw && Math.abs(y - c.y) <= c.hh) return true
+    }
+    return false
+  }
+  let row = 0
+  for (let y = y0; y <= y1 && sim.n < B.particles; y += dy, row++) {
+    for (let x = x0 + (row & 1 ? d * 0.5 : 0); x <= x1; x += d) {
+      if (sim.n >= B.particles) break
+      if (solid(x, y)) continue
+      sim.addParticle(x + (Math.random() - 0.5) * d * 0.1, y, 0, 0, 0, S.rest0)
+    }
+  }
+})()
+
+// ---- отрисовка -------------------------------------------------------------
+const view = document.getElementById('view')
+const mesher = new SurfaceMesher(m(B.W), m(B.H), SPACING * 0.45, PX)
+const splatR = S.blob * SPACING
+const iso = S.iso * bulkFieldValue(splatR, SPACING)
+const rockPath = sim.colliders.map((c) => {
+  const X = (c.x - c.hw) * PX, Y = (c.y - c.hh) * PX
+  const W = c.hw * 2 * PX, H = c.hh * 2 * PX
+  return `M${X} ${Y}h${W}v${H}h${-W}Z`
+}).join('')
+
+function draw() {
+  const used = mesher.splat(sim, 0, splatR)
+  const d = used ? mesher.contour(iso, S.smooth) : ''
+  view.innerHTML =
+    `<path d="${rockPath}" fill="#2a3326" stroke="#66804f" stroke-width="2"/>`
+    + `<path d="${d}" fill="#3fb2cf" stroke="#a8e9f7" stroke-width="1.4" fill-rule="evenodd" opacity="0.92"/>`
+}
+
+// ---- показания -------------------------------------------------------------
+// Те же величины и те же формулы, что на стенде движка, только в пикселях.
+function sample() {
+  const n = sim.n
+  let ke = 0, vmax = 0, top = Infinity, sy = 0
+  const cols = new Map()
+  for (let i = 0; i < n; i++) {
+    const vx = sim.vx[i] * PX, vy = sim.vy[i] * PX
+    const v2 = vx * vx + vy * vy
+    ke += v2
+    if (v2 > vmax) vmax = v2
+    const y = sim.y[i] * PX, x = sim.x[i] * PX
+    if (y < top) top = y
+    sy += y
+    const c = Math.floor(x / 40)
+    const cur = cols.get(c)
+    if (cur === undefined || y < cur) cols.set(c, y)
+  }
+  const hs = [...cols.values()]
+  return {
+    n,
+    vRms: Math.sqrt(ke / Math.max(1, n)),
+    vMax: Math.sqrt(vmax),
+    yMean: sy / Math.max(1, n),
+    yTop: top,
+    flat: hs.length ? Math.max(...hs) - Math.min(...hs) : 0,
+  }
+}
+
+const rec = new Recorder('ref', B)
+let measuring = false
+
+function loop() {
+  const t0 = performance.now()
+  sim.step(B.dt, S.substeps)
+  const tPhys = performance.now() - t0
+  const t1 = performance.now()
+  draw()
+  const tDraw = performance.now() - t1
+  if (measuring && rec.tick(tPhys, tDraw, sample)) {
+    measuring = false
+    document.getElementById('go').textContent = 'Замерить 20 с'
+  }
+  const s = sample()
+  document.getElementById('stat').textContent =
+    `частиц ${s.n}\nфизика ${tPhys.toFixed(1)} мс\nотрисовка ${tDraw.toFixed(1)} мс\n`
+    + `скорость ${s.vRms.toFixed(1)} px/с\nурез ${s.yTop.toFixed(0)}\n`
+    + (measuring ? `\nидёт замер: ${rec.frames.length}/${B.frames}` : '')
+  requestAnimationFrame(loop)
+}
+
+document.getElementById('go').onclick = () => {
+  rec.reset(); measuring = true
+  document.getElementById('go').textContent = 'замеряю…'
+}
+document.getElementById('dump').onclick = () => rec.download()
+
+for (let i = 0; i < B.warmup; i++) sim.step(B.dt, S.substeps)
+requestAnimationFrame(loop)
+</script>
+</body>
+</html>

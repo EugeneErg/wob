@@ -31,6 +31,54 @@ const MAXN = 48         // потолок соседей на частицу
 const BUOY = 1        // сила выталкивания: 1 — как в жизни
 const SURF = 0.5        // порог |∇C|·h, за которым частица считается поверхностной
 
+// Поправка положения — функцией уровня модуля, а не методом.
+// Тот же цикл отдельно идёт 0.35 мс на 4500 частиц, методом внутри
+// модуля — 0.90. Причина та же, что и у циклов подшага: крупная
+// функция с разнородными вызовами по соседству мешает оптимизации.
+function applyDelta(F, s, m) {
+    const { idx, nbr, nc, lam, dx, dy, cx, cy, cm, cw, cbs, cbnx, cbny, nkc, nkw } = F
+    // Всё, что нужно внутреннему циклу, — в локальные переменные, и ни одного
+    // деления: обратные величины считаются один раз. Свойство объекта и
+    // деление стоят в горячем цикле дороже всей остальной арифметики вместе.
+    const P6 = m.POLY6, SP = m.SPIKY, h = m.h, h2 = m.h2
+    const invWq = 1 / m.wq, invRest = 1 / m.rest0, K = m.K
+    const bl = m.btab.l, binv = m.btab.inv, blast = bl.length - 1
+    dx.fill(0, m._from, m._to); dy.fill(0, m._from, m._to)
+    for (let a = m._from; a < m._to; a++) {
+      const i = idx[a]
+      const xi = cx[a], yi = cy[a], la = lam[a]
+      let ax = 0, ay = 0
+      const base = a * MAXN, cnt = nc[a]
+      for (let u = 0; u < cnt; u++) {
+        const kc = nkc[base + u]
+        if (kc === 0) continue           // ядро уже посчитано в плотности
+        const b = nbr[base + u]
+        const ddx = xi - cx[b], ddy = yi - cy[b]
+        const q = nkw[base + u] * invWq, q2 = q * q
+        const sc = -K * q2 * q2
+        // m_j/ρ₀ᵢ — развесовка по обратной массе: лёгкая частица сдвигается
+        // сильнее тяжёлой, откуда и берётся всплытие и расслоение фаз.
+        const c = kc * (cm[b] * invRest) * (la + lam[b] + sc)
+        ax += c * ddx; ay += c * ddy
+      }
+      // Стенка отталкивает всегда, но тянуть к себе не вправе: смачивание —
+      // отдельная сила, а не работа решателя.
+      const sb = cbs[a]
+      if (sb < h) {
+        const lb = la < 0 ? la : 0
+        let k = (sb * binv) | 0
+        if (k > blast) k = blast
+        const g = -bl[k] * lb
+        ax += g * cbnx[a]; ay += g * cbny[a]
+      }
+      dx[a] = ax * OMEGA; dy[a] = ay * OMEGA
+    }
+    for (let a = m._from; a < m._to; a++) {
+      if (!cw[a]) continue
+      cx[a] += dx[a]; cy[a] += dy[a]
+    }
+}
+
 export class FluidDensity {
   constructor() {
     this.name = 'fluid'
@@ -409,49 +457,7 @@ export class FluidDensity {
   // Поправка положения. Развесовка по обратной массе — та же, что у контакта:
   // лёгкую частицу сдвигает сильнее тяжёлой. Отсюда и расслоение фаз, и
   // всплытие тела — без единого слова про то и другое.
-  _push(s, m) {
-    const { idx, nbr, nc, lam, dx, dy, cx, cy, cm, cw, cbs, cbnx, cbny, nkc, nkw } = this
-    // Всё, что нужно внутреннему циклу, — в локальные переменные, и ни одного
-    // деления: обратные величины считаются один раз. Свойство объекта и
-    // деление стоят в горячем цикле дороже всей остальной арифметики вместе.
-    const P6 = m.POLY6, SP = m.SPIKY, h = m.h, h2 = m.h2
-    const invWq = 1 / m.wq, invRest = 1 / m.rest0, K = m.K
-    const bl = m.btab.l, binv = m.btab.inv, blast = bl.length - 1
-    dx.fill(0, m._from, m._to); dy.fill(0, m._from, m._to)
-    for (let a = m._from; a < m._to; a++) {
-      const i = idx[a]
-      const xi = cx[a], yi = cy[a], la = lam[a]
-      let ax = 0, ay = 0
-      const base = a * MAXN, cnt = nc[a]
-      for (let u = 0; u < cnt; u++) {
-        const kc = nkc[base + u]
-        if (kc === 0) continue           // ядро уже посчитано в плотности
-        const b = nbr[base + u]
-        const ddx = xi - cx[b], ddy = yi - cy[b]
-        const q = nkw[base + u] * invWq, q2 = q * q
-        const sc = -K * q2 * q2
-        // m_j/ρ₀ᵢ — развесовка по обратной массе: лёгкая частица сдвигается
-        // сильнее тяжёлой, откуда и берётся всплытие и расслоение фаз.
-        const c = kc * (cm[b] * invRest) * (la + lam[b] + sc)
-        ax += c * ddx; ay += c * ddy
-      }
-      // Стенка отталкивает всегда, но тянуть к себе не вправе: смачивание —
-      // отдельная сила, а не работа решателя.
-      const sb = cbs[a]
-      if (sb < h) {
-        const lb = la < 0 ? la : 0
-        let k = (sb * binv) | 0
-        if (k > blast) k = blast
-        const g = -bl[k] * lb
-        ax += g * cbnx[a]; ay += g * cbny[a]
-      }
-      dx[a] = ax * OMEGA; dy[a] = ay * OMEGA
-    }
-    for (let a = m._from; a < m._to; a++) {
-      if (!cw[a]) continue
-      cx[a] += dx[a]; cy[a] += dy[a]
-    }
-  }
+  _push(s, m) { applyDelta(this, s, m) }
 
   // Плёнка: свободная поверхность подтягивается к средней по соседям, иначе
   // она вечно шершавая на масштабе частицы.

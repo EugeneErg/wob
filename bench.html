@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Стенд: движок wob</title>
+<style>
+  body{margin:0;background:#11151a;color:#cfd8e3;font:13px/1.5 system-ui,sans-serif}
+  #wrap{display:flex;gap:12px;padding:12px}
+  svg{background:#0c1015;border:1px solid #223}
+  #side{width:280px}
+  button{width:100%;padding:8px;margin:4px 0;background:#2b6cb0;color:#fff;border:0;border-radius:4px;cursor:pointer}
+  button.g{background:#2f855a}
+  pre{background:#0c1015;border:1px solid #223;padding:8px;font-size:11px;white-space:pre-wrap;max-height:340px;overflow:auto}
+  b{color:#8fd}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <svg id="view" width="1600" height="900" viewBox="0 0 1600 900"></svg>
+  <div id="side">
+    <div><b>Стенд: движок wob</b></div>
+    <pre id="stat">запуск…</pre>
+    <button id="go" class="g">Замерить 20 с</button>
+    <button id="dump">Сохранить отчёт</button>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<script type="module">
+import './src/entities/index.js'
+import { World } from './src/core/world.js'
+import { BENCH, buildLevelWob, Recorder } from './bench-common.js'
+
+// ---- уровень ---------------------------------------------------------------
+const level = buildLevelWob()
+const world = new World(level)
+
+// ---- отрисовка -------------------------------------------------------------
+// Минимальная: стенду нужна не красота, а та же работа, что делает игра, —
+// построить контур и отдать его разметке.
+const view = document.getElementById('view')
+const esc = (s) => String(s ?? '')
+function draw() {
+  const parts = []
+  for (const s of world.scene()) {
+    if (s.k === 'path' && s.d) {
+      parts.push(`<path d="${s.d}" fill="${esc(s.fill) || 'none'}" stroke="${esc(s.stroke) || 'none'}"`
+        + ` stroke-width="${s.sw ?? 1}" fill-rule="${esc(s.fillRule) || 'nonzero'}" opacity="${s.opacity ?? 1}"/>`)
+    } else if (s.k === 'poly' && s.pts?.length) {
+      const d = s.pts.map(([x, y], i) => (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1)).join('') + (s.closed ? 'Z' : '')
+      parts.push(`<path d="${d}" fill="${esc(s.fill) || 'none'}" stroke="${esc(s.stroke) || 'none'}" stroke-width="${s.sw ?? 1}"/>`)
+    } else if (s.k === 'circle') {
+      parts.push(`<circle cx="${s.x}" cy="${s.y}" r="${s.r}" fill="${esc(s.fill) || 'none'}"/>`)
+    }
+  }
+  view.innerHTML = parts.join('')
+}
+
+// ---- показания -------------------------------------------------------------
+// Читаем через публичный список точек — то же, что видит любая сущность.
+const drops = () => world.physics.points.filter((p) => p.owner === 'water' && !p.removed)
+
+function sample() {
+  const d = drops()
+  let ke = 0, vmax = 0, top = Infinity, sy = 0
+  const cols = new Map()
+  for (const p of d) {
+    const v2 = p.vx * p.vx + p.vy * p.vy
+    ke += v2
+    if (v2 > vmax) vmax = v2
+    if (p.y < top) top = p.y
+    sy += p.y
+    const c = Math.floor(p.x / 40)
+    const cur = cols.get(c)
+    if (cur === undefined || p.y < cur) cols.set(c, p.y)
+  }
+  const hs = [...cols.values()]
+  return {
+    n: d.length,
+    vRms: Math.sqrt(ke / Math.max(1, d.length)),
+    vMax: Math.sqrt(vmax),
+    yMean: sy / Math.max(1, d.length),
+    yTop: top,
+    flat: hs.length ? Math.max(...hs) - Math.min(...hs) : 0,
+  }
+}
+
+const rec = new Recorder('wob', BENCH)
+let measuring = false, tPrev = performance.now()
+
+function loop() {
+  const now = performance.now()
+  tPrev = now
+  const t0 = performance.now()
+  world.step(BENCH.dt)
+  const tPhys = performance.now() - t0
+  const t1 = performance.now()
+  draw()
+  const tDraw = performance.now() - t1
+  if (measuring && rec.tick(tPhys, tDraw, sample)) {
+    measuring = false
+    document.getElementById('go').textContent = 'Замерить 20 с'
+  }
+  const s = sample()
+  document.getElementById('stat').textContent =
+    `частиц ${s.n}\nфизика ${tPhys.toFixed(1)} мс\nотрисовка ${tDraw.toFixed(1)} мс\n`
+    + `скорость ${s.vRms.toFixed(1)} px/с\nурез ${s.yTop.toFixed(0)}\n`
+    + (measuring ? `\nидёт замер: ${rec.frames.length}/${BENCH.frames}` : '')
+  requestAnimationFrame(loop)
+}
+
+document.getElementById('go').onclick = () => {
+  rec.reset(); measuring = true
+  document.getElementById('go').textContent = 'замеряю…'
+}
+document.getElementById('dump').onclick = () => rec.download()
+
+// прогрев: даём воде осесть, иначе меряем всплеск налива
+for (let i = 0; i < BENCH.warmup; i++) world.step(BENCH.dt)
+requestAnimationFrame(loop)
+</script>
+</body>
+</html>
