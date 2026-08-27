@@ -26,6 +26,7 @@ export function readOnlyContext(level, entity) {
     nearest: () => null,
     neighbors: () => [],
     solidAt: () => false,
+    liquidAt: () => false,
     pathFrom: () => null,
     isBlocked: () => false,
     closestOnLinks: () => null,

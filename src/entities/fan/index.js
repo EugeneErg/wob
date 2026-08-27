@@ -59,7 +59,10 @@ export default defineEntity({
         // свежая, но ни один кадр не платит за весь уровень. Это же чинит
         // запаздывание после раскопок — прокопанный ход открывается почти сразу.
         const band = Math.ceil(f.ny / 4)
-        markSolidsRows(f, (x, y) => ctx.solidAt(x, y), air.row, air.row + band)
+        // Преграда — это и камень, и вода: поток не имеет права идти сквозь
+        // лужу, будто её нет. Обратную сторону (ветер гонит рябь по воде)
+        // считает сама среда, читая это же поле течения.
+        markSolidsRows(f, (x, y) => ctx.solidAt(x, y) || ctx.liquidAt(x, y), air.row, air.row + band)
         air.row = (air.row + band) % f.ny
 
         step(f, air.acc, { iters: 16, damping: 0.995 })

@@ -46,10 +46,11 @@
 import { clamp, ringsOf, bboxOfRings } from './geom.js'
 import { EdgeIndex, EDGES_MIN } from './grid.js'
 import { GravityField } from './field.js'
-import { ParticleStore, Point, F_PINNED, F_WORLD, F_POINTS } from './particles.js'
+import { ParticleStore, Point, F_PINNED, F_WORLD, F_POINTS, F_FLUID } from './particles.js'
 import { DistanceConstraints } from './constraints/distance.js'
 import { ShapeMatching } from './constraints/shape.js'
 import { Contacts } from './constraints/contact.js'
+import { FluidDensity, makeMedium, sameSubstance } from './constraints/fluid.js'
 
 let UID = 1
 const nid = (p) => p + UID++
@@ -77,6 +78,7 @@ export class Physics {
 
     this.links = []
     this.bodies = []
+    this.mediums = []
     this.colliders = []
     this.substep = 0
 
@@ -87,6 +89,7 @@ export class Physics {
     // снаружи — этим и отличается «условно PBF-движок» от движка, к которому
     // PBF пришит сбоку.
     this.modules = []
+    this.fluid = new FluidDensity()
     this.use(new DistanceConstraints())
     this.use(new ShapeMatching())
     this.use(new Contacts())
@@ -137,6 +140,8 @@ export class Physics {
     s.radius[i] = o.radius ?? 8
     s.rest[i] = o.restitution ?? 0.2
     s.smooth[i] = o.smoothness ?? 0.5
+    // насколько далеко точке интересна стенка сверх собственного радиуса
+    s.reach[i] = o.reach ?? 0
     // отрицательный вес — подъёмная сила: инерция та же, гравитация наоборот
     s.setMass(i, o.mass ?? 1)
     s.gscale[i] = (o.gravityScale ?? 1) * ((o.mass ?? 1) < 0 ? -1 : 1)
@@ -144,6 +149,7 @@ export class Physics {
     let f = s.flags[i]
     if (o.collision?.world === false) f &= ~F_WORLD
     if (o.collision?.points === false) f &= ~F_POINTS
+    if (o.collision?.fluid === false) f &= ~F_FLUID
     if (o.pinned) f |= F_PINNED
     s.flags[i] = f
     if (o.pinned) s.w[i] = 0
@@ -223,6 +229,40 @@ export class Physics {
     return b
   }
 
+  // Среда регистрируется списком, как тело: признака «жидкая» на частице нет,
+  // принадлежность выражает сам список. Модуль плотности подключается лениво —
+  // нет среды, нет и расходов на неё.
+  addMedium(o = {}) {
+    // Одинаковое вещество — ОДНА среда, сколько бы луж его ни налило. Иначе
+    // две слившиеся лужи, физически ставшие одной кучей частиц, продолжали бы
+    // считаться порознь и рисовались бы двумя блобами со швом на стыке.
+    // Различает вещества не имя, а числа: у кого они совпали, тот и одно и то
+    // же. Разные — остаются разными средами и расслаиваются.
+    const same = this.mediums.find((x) => sameSubstance(x, o))
+    if (same) {
+      for (const p of o.points || []) same.points.push(p)
+      return same
+    }
+    const m = makeMedium({ ...o, id: nid('m') })
+    this.mediums.push(m)
+    this.fluid.mediums = this.mediums
+    if (!this.modules.includes(this.fluid)) this.use(this.fluid)
+    return m
+  }
+
+  // Убираем не среду, а долю ушедшей сущности: среда общая, и у неё могут
+  // остаться другие хозяева. Опустела — тогда и уходит.
+  removeMedium(m, points) {
+    if (!m) return
+    if (points && points.length) {
+      const gone = new Set(points)
+      m.points = m.points.filter((p) => !gone.has(p))
+    } else m.points.length = 0
+    if (m.points.length) return
+    m.removed = true
+    const i = this.mediums.indexOf(m); if (i >= 0) this.mediums.splice(i, 1)
+  }
+
   _rebase(b) {
     let cx = 0, cy = 0, m = 0
     for (const p of b.verts) { cx += p.x * p.mass; cy += p.y * p.mass; m += p.mass }
@@ -292,7 +332,12 @@ export class Physics {
   step(dt) {
     this._acc += Math.min(dt, 0.25)
     let n = 0
+    // Сколько подшагов будет — известно заранее, и это стоит сказать модулям:
+    // не всякая работа обязана повторяться на каждом. Силы, которые копятся
+    // по соседям (вязкость, натяжение), достаточно приложить раз за кадр.
+    const total = Math.min(this.maxSub, Math.floor(this._acc / this.fixed))
     while (this._acc >= this.fixed && n < this.maxSub) {
+      this.lastSub = (n === total - 1)
       this._sub(this.fixed)
       this._acc -= this.fixed
       n++
@@ -313,15 +358,28 @@ export class Physics {
     // 1. силы → скорость; 2. предсказание.
     // Закреплённую не интегрируем: её скорость задают снаружи (рельсы, мотор),
     // и она нужна контакту как скорость поверхности.
+    // Все массивы — в локальные. Пока это свойства хранилища, их приходится
+    // перечитывать на каждой точке: замерено 425 нс на точку там, где работы
+    // на десяток операций.
     const X = s.x, Y = s.y, SX = s.sx, SY = s.sy, VX = s.vx, VY = s.vy
+    const LN = s.lamN, WW = s.w, GS = s.gscale, AX = s.ax, AY = s.ay
+    // Когда источников притяжения нет, «низ» у всех один и спрашивать его у
+    // каждой точки незачем.
+    const wells = this.field.wells.length
+    const ug = this.field.uniform
     for (let i = 0; i < n; i++) {
       SX[i] = X[i]; SY[i] = Y[i]
-      s.lamN[i] = 0
-      if (!s.w[i]) continue
-      // поле спрашиваем там, где частица сейчас: у каждой свой «низ»
-      this.field.at(X[i], Y[i], g)
-      VX[i] = (VX[i] + (g.x * s.gscale[i] + s.ax[i]) * h) * kd
-      VY[i] = (VY[i] + (g.y * s.gscale[i] + s.ay[i]) * h) * kd
+      LN[i] = 0
+      if (!WW[i]) continue
+      let gx = ug.x, gy = ug.y
+      if (wells) {
+        // поле спрашиваем там, где частица сейчас: у каждой свой «низ»
+        this.field.at(X[i], Y[i], g)
+        gx = g.x; gy = g.y
+      }
+      const gsi = GS[i]
+      VX[i] = (VX[i] + (gx * gsi + AX[i]) * h) * kd
+      VY[i] = (VY[i] + (gy * gsi + AY[i]) * h) * kd
       X[i] += VX[i] * h
       Y[i] += VY[i] * h
     }
@@ -338,7 +396,7 @@ export class Physics {
     //    давление среды — переносит импульс, как ей и полагается.
     const inv = 1 / h
     for (let i = 0; i < n; i++) {
-      if (!s.w[i]) continue
+      if (!WW[i]) continue
       VX[i] = (X[i] - SX[i]) * inv
       VY[i] = (Y[i] - SY[i]) * inv
     }

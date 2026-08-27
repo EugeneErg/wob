@@ -23,10 +23,18 @@ export const F_PINNED = 1 << 0 // закреплена: обратная мас�
 export const F_WORLD = 1 << 1 // сталкивается со статической геометрией
 export const F_POINTS = 1 << 2 // сталкивается с другими телами
 export const F_LIFT = 1 << 3 // отрицательный вес: подъёмная сила
+// Тонет в среде. Отдельно от F_POINTS, потому что это разные вопросы: ходячий
+// шар проходит сквозь других шаров (points = false), но проваливаться сквозь
+// воду при этом не должен. Одним флагом их путать нельзя.
+export const F_FLUID = 1 << 4
 
+// bs/bnx/bny/brg — ближайшая стенка: расстояние, нормаль, шершавость. Контакт
+// это и так считает на каждой итерации; среде оно нужно, чтобы не принимать
+// частицу у борта за разреженную. Записать уже посчитанное дешевле, чем
+// проходить границу второй раз.
 const F32 = ['x', 'y', 'sx', 'sy', 'vx', 'vy', 'w', 'mass', 'radius',
   'gscale', 'rest', 'smooth', 'ax', 'ay', 'spin', 'angle',
-  'dx', 'dy', 'lamN']
+  'dx', 'dy', 'lamN', 'bs', 'bnx', 'bny', 'brg', 'reach']
 const I32 = ['flags', 'group', 'rigid', 'nc']
 
 const MIN_MASS = 0.05
@@ -34,7 +42,13 @@ const MIN_MASS = 0.05
 // Группы (сборки) снаружи — строки id инстанса. В горячем цикле сравнивать
 // строки нельзя, поэтому они интернируются в числа. Ноль — «без группы».
 class Interner {
-  constructor() { this.map = new Map([[null, 0]]); this.list = [null] }
+  constructor() {
+    this.map = new Map([[null, 0]]); this.list = [null]
+    // Группы, члены которых не сталкиваются друг с другом как твёрдые: им
+    // взаимное расположение держит собственное ограничение — плотность среды.
+    // Отмечает их тот, кто это ограничение и добавляет.
+    this.cohesive = new Set()
+  }
   id(key) {
     if (key == null) return 0
     let v = this.map.get(key)
@@ -83,7 +97,9 @@ export class ParticleStore {
     this.gscale[i] = 1; this.rest[i] = 0.2; this.smooth[i] = 0.5
     this.ax[i] = 0; this.ay[i] = 0; this.spin[i] = 0; this.angle[i] = 0
     this.dx[i] = 0; this.dy[i] = 0; this.lamN[i] = 0
-    this.flags[i] = F_WORLD | F_POINTS
+    this.bs[i] = 1e9; this.bnx[i] = 0; this.bny[i] = -1; this.brg[i] = 0.5
+    this.reach[i] = 0   // насколько далеко точке интересна стенка сверх радиуса
+    this.flags[i] = F_WORLD | F_POINTS | F_FLUID
     this.group[i] = 0; this.rigid[i] = 0; this.nc[i] = 0
     return i
   }
@@ -159,6 +175,10 @@ class Collision {
   set world(v) { this._h._bit(F_WORLD, v) }
   get points() { return (this._h._s.flags[this._h._i] & F_POINTS) !== 0 }
   set points(v) { this._h._bit(F_POINTS, v) }
+  // Тонуть в среде — отдельный вопрос от «толкаться с телами»: ходячий шар
+  // проходит сквозь других шаров, но сквозь воду проваливаться не должен.
+  get fluid() { return (this._h._s.flags[this._h._i] & F_FLUID) !== 0 }
+  set fluid(v) { this._h._bit(F_FLUID, v) }
 }
 
 let UID = 1
@@ -191,6 +211,13 @@ acc('vx', 'vx'); acc('vy', 'vy'); acc('radius', 'radius')
 acc('restitution', 'rest'); acc('smoothness', 'smooth')
 acc('spin', 'spin'); acc('angle', 'angle')
 acc('gravityScale', 'gscale')
+// Ближайшая поверхность: расстояние со знаком и нормаль наружу. Контакт всё
+// равно ищет её каждый подшаг, так что это не новая работа, а открытый доступ
+// к уже посчитанному. Нужна тем, кто рисует границу среды: без зеркальных
+// частиц за стенкой поле плотности спадает у борта и берег заворачивается вниз.
+acc('wallDist', 'bs'); acc('wallNx', 'bnx'); acc('wallNy', 'bny')
+// Насколько далеко точке интересна стенка сверх собственного радиуса.
+acc('reach', 'reach')
 
 Object.defineProperties(Point.prototype, {
   index: { get() { return this._i } },

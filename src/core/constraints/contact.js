@@ -14,7 +14,7 @@
 
 import { clamp, closestOnSegmentInto, insideRegion } from '../geom.js'
 import { HashGrid, PAIRS_MIN } from '../nsearch.js'
-import { F_POINTS, F_WORLD } from '../particles.js'
+import { F_POINTS, F_WORLD, F_FLUID } from '../particles.js'
 
 // Во сколько раз сопротивление качению меньше трения скольжения при той же
 // шершавости. У катка по грунту это примерно одна десятая, у стального шара по
@@ -31,8 +31,10 @@ export class Contacts {
     this.name = 'contacts'
     this.order = 40
     this.grid = new HashGrid()
-    this.solid = new Int32Array(0)   // индексы не-среды, участвующей в парах
+    this.solid = new Int32Array(0)   // все, кто участвует в парах
     this.solidCount = 0
+    this.src = new Int32Array(0)     // из них — те, кто пары ИЩЕТ
+    this.srcCount = 0
     this._cand = []
     this._seg = { x: 0, y: 0, t: 0 }
     this._hit = { q: null, x: 0, y: 0, qx: 0, qy: 0, d: 0, edge: 0, t: 0 }
@@ -41,13 +43,40 @@ export class Contacts {
 
   prepare(phys) {
     const s = phys.store
+    // Ближайшую стенку ищем заново каждый подшаг: она только уменьшается,
+    // пока её не сбросишь, а тела за подшаг разъезжаются.
+    s.bs.fill(1e9, 0, s.n)
     if (this.solid.length < s.n) this.solid = new Int32Array(Math.max(s.n, 64))
     let k = 0
     for (let i = 0; i < s.n; i++) {
-      if (!(s.flags[i] & F_POINTS)) continue
+      // Берём и тех, кто с телами не сталкивается, но в среде тонет: ходячий
+      // шар нарочно проходит сквозь другие шары, а проваливаться сквозь воду
+      // не должен. Это разные вопросы, и флаги у них разные.
+      if (!(s.flags[i] & (F_POINTS | F_FLUID))) continue
       this.solid[k++] = i
     }
     this.solidCount = k
+    // Кто ИЩЕТ пары. Контакт симметричен, поэтому пару достаточно найти с
+    // одной стороны. Частицы среды друг с другом не сталкиваются вовсе —
+    // расстояние им держит давление, — значит искать им незачем: шар найдёт их
+    // сам. В сетке они при этом остаются, иначе их бы никто не нашёл.
+    // Замерено: поиск пар для 1200 частиц стоил 6.5 мс вхолостую.
+    // Группы частиц среды. Читаем их здесь, а не при заведении среды: группу
+    // точке мир переустанавливает при привязке сущности, и раньше этого
+    // момента она ещё не та.
+    const coh = s.groups.cohesive
+    coh.clear()
+    for (const m of phys.mediums) {
+      for (const p of m.points) { if (!p.removed) { coh.add(s.group[p._i]); break } }
+    }
+    if (this.src.length < s.n) this.src = new Int32Array(Math.max(s.n, 64))
+    let q = 0
+    for (let a = 0; a < k; a++) {
+      const i = this.solid[a]
+      if (coh.size && coh.has(s.group[i])) continue
+      this.src[q++] = a
+    }
+    this.srcCount = q
     // Группу коллайдера интернируем один раз на подшаг: в горячем цикле
     // сравниваются числа, а не строки.
     for (const c of phys.colliders) c._gid = s.groups.id(c.group)
@@ -61,10 +90,10 @@ export class Contacts {
     }
   }
 
-  project(phys, h) {
+  project(phys, h, it = 0) {
     this._syncColliders(phys)
     this._pairs(phys)
-    this._region(phys, h)
+    this._region(phys, h, it)
   }
 
   // --- тело против тела -----------------------------------------------------
@@ -77,11 +106,20 @@ export class Contacts {
       }
       return
     }
+    const src = this.src, sn = this.srcCount
+    // Группы частиц среды. Читаем их здесь, а не при заведении среды: группу
+    // точке мир переустанавливает при привязке сущности, и раньше этого
+    // момента она ещё не та.
+    const coh = s.groups.cohesive
+    const anyCoh = coh.size > 0
     const cand = this._cand
     const X = s.x, Y = s.y, R = s.radius
-    for (let a = 0; a < n; a++) {
-      const i = ids[a]
-      this.grid.gather(X[i], Y[i], R[i], cand, a)
+    for (let q = 0; q < sn; q++) {
+      const a = src[q], i = ids[a]
+      // Ищущий спрашивает всех, кто дальше по списку, — так пара «ищущий и
+      // ищущий» находится ровно один раз. А тех, кто сам не ищет, приходится
+      // спрашивать и позади себя: иначе половина таких пар потеряется.
+      this.grid.gather(X[i], Y[i], R[i], cand, anyCoh ? -1 : a)
       // Вставками, а не sort(): кандидатов единицы, и постоянные расходы
       // библиотечной сортировки тут дороже самой сортировки в разы. Порядок
       // обязан совпадать с полным перебором — проход последовательный.
@@ -91,11 +129,24 @@ export class Contacts {
         while (b >= 0 && cand[b] > v) { cand[b + 1] = cand[b]; b-- }
         cand[b + 1] = v
       }
-      for (let u = 0; u < cand.length; u++) this._push(s, i, ids[cand[u]])
+      for (let u = 0; u < cand.length; u++) {
+        const b = cand[u]
+        if (b === a) continue
+        if (anyCoh && b < a && !coh.has(s.group[ids[b]])) continue
+        this._push(s, i, ids[b])
+      }
     }
   }
 
   _push(s, a, b) {
+    // Пара имеет право на контакт, если оба толкаются с телами — либо если
+    // один из них частица среды, а второй в среде тонет.
+    const fa = s.flags[a], fb = s.flags[b]
+    if (!((fa & F_POINTS) && (fb & F_POINTS))) {
+      const coh = s.groups.cohesive
+      const ma = coh.has(s.group[a]), mb = coh.has(s.group[b])
+      if (!(ma !== mb && (ma ? (fb & F_FLUID) : (fa & F_FLUID)))) return
+    }
     const wa = s.w[a], wb = s.w[b]
     const sum = wa + wb
     if (!sum) return
@@ -132,17 +183,50 @@ export class Contacts {
   // --- тело против области --------------------------------------------------
   // Со статикой просто выталкиваем, с живым телом делим поправку по обратным
   // массам — тело получает отдачу: шар, упавший на край, разворачивает объект.
-  _region(phys, h) {
+  _region(phys, h, it = 0) {
     const s = phys.store
     const inv = 1 / h
     const X = s.x, Y = s.y, W = s.w, F = s.flags, R = s.radius
     for (let i = 0; i < s.n; i++) {
       if (!W[i] || !(F[i] & F_WORLD)) continue
       const gi = s.group[i]
-      for (const c of phys.colliders) {
+      const reach = s.reach[i]
+      const sense0 = it === 0 && reach > 0
+      const far = R[i] + (sense0 ? reach : 0)
+      const xi = X[i], yi = Y[i]
+      // Рамку проверяем ЗДЕСЬ, а не внутри _contact. Из 28 800 запросов за
+      // кадр до настоящей работы доходили 583 — остальные отсеивались рамкой,
+      // но платили за вызов метода и за итератор по коллайдерам. Индексный
+      // цикл и проверка на месте убирают эту плату.
+      const cols = phys.colliders
+      for (let ci = 0; ci < cols.length; ci++) {
+        const c = cols[ci]
         if (gi && c._gid === gi) continue
-        const ct = this._contact(s, i, c, 0)
+        const bb = c.bbox
+        if (!bb || !c.rings || !c.rings.length) continue
+        if (xi + far < bb.x || xi - far > bb.x + bb.w) continue
+        if (yi + far < bb.y || yi - far > bb.y + bb.h) continue
+        // Два РАЗНЫХ вопроса к одной геометрии, и стоят они по-разному.
+        //
+        // Оттолкнуться — вопрос на каждой итерации: положение за итерацию
+        // меняется. Достаточно радиуса точки, и поиск выходит дешёвым.
+        //
+        // Почуять стенку издалека (reach — частице среды нужен радиус ядра,
+        // иначе у борта она выглядит разреженной) — вопрос РАЗ В ПОДШАГ:
+        // внутри подшага стенка не движется, а искать её в радиусе ядра втрое
+        // дороже. Спрашиваем на первой итерации, дальше пользуемся ответом.
+        const sense = sense0
+        const ct = this._contact(s, i, c, sense ? reach : 0)
         if (!ct) continue
+        if (sense) {
+          const gap = R[i] - ct.depth      // расстояние до поверхности со знаком
+          if (gap < s.bs[i]) {
+            s.bs[i] = gap > 0 ? gap : 0
+            s.bnx[i] = ct.nx; s.bny[i] = ct.ny
+            s.brg[i] = 1 - (c.smoothness ?? 0.5)
+          }
+        }
+        if (ct.depth <= 0) continue        // стенку почуяли, но не коснулись
         if (!c.dynamic) {
           const tx = ct.qx + ct.nx * R[i], ty = ct.qy + ct.ny * R[i]
           const dx = tx - X[i], dy = ty - Y[i]
@@ -267,8 +351,19 @@ export class Contacts {
     if (!rings || !rings.length) return null
     const bb = c.bbox
     const px = s.x[i], py = s.y[i], r = s.radius[i]
-    if (px + r < bb.x || px - r > bb.x + bb.w) return null
-    if (py + r < bb.y || py - r > bb.y + bb.h) return null
+    // Рамку раздуваем на ВЕСЬ интерес точки, а не на один её радиус.
+    //
+    // Иначе рамка отсекает строже самого запроса: скоростной проход
+    // спрашивает геометрию с запасом 0.5, но точка в зазоре от r до r+0.5
+    // отсеивалась здесь же — хотя проверка расстояния её бы приняла. Тому, кто
+    // щупает стенку издалека (reach), это и вовсе закрывало обзор.
+    //
+    // Правка меняет поведение тел: трение теперь прикладывается там, где
+    // контакт по логике есть. Тест holelevel показывает другой переходный
+    // процесс (шар на 3-й секунде идёт иначе), но приходит туда же.
+    const far = r + slack
+    if (px + far < bb.x || px - far > bb.x + bb.w) return null
+    if (py + far < bb.y || py - far > bb.y + bb.h) return null
 
     // Снаружи граница интересна только в пределах своего радиуса — этим
     // ограничением индекс живёт одним просмотром вместо расширяющегося поиска.

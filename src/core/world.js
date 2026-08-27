@@ -11,8 +11,8 @@ export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toStrin
 // Всё, что меняет мир: в редакторе этого нет, отрисовка обязана быть чистой.
 export const CONTEXT_MUTATORS = [
   'setSignal', 'shared',
-  'addPoint', 'addLink', 'addCollider', 'addBody', 'addWell',
-  'removeLink', 'removeCollider', 'removeWell',
+  'addPoint', 'addLink', 'addCollider', 'addBody', 'addWell', 'addMedium',
+  'removeLink', 'removePoint', 'removeCollider', 'removeWell',
   'setRegion', 'applyAccel', 'setMass', 'setSpin',
   'setVelocity', 'addImpulse', 'placeAt', 'setPinned',
   'emit', 'despawnSelf', 'destroy',
@@ -30,6 +30,7 @@ export class EntityContext {
     this._links = []
     this._colliders = []
     this._bodies = []
+    this._mediums = []
     this._wells = []
   }
 
@@ -92,6 +93,13 @@ export class EntityContext {
     this._bodies.push(b)
     return b
   }
+  // Среда: частицы держат взаимную плотность и текут. Ровно такое же
+  // ограничение, как жёсткая форма, только про несжимаемость, а не про форму.
+  addMedium(o) {
+    const m = this.world.physics.addMedium(o)
+    this._mediums.push(m)
+    return m
+  }
   // Источник притяжения: тело, вокруг которого искривляется «низ».
   // Их вклады складываются — поле считает мир, а не сущность.
   addWell(o) {
@@ -108,6 +116,12 @@ export class EntityContext {
   // Заменить область коллайдера — так копают песок и рушат стены
   setRegion(c, polys) { return this.world.physics.setRegion(c, polys) }
   removeLink(l) { this.world.physics.removeLink(l) }
+  // Убрать свою точку. Симметрично addPoint — как removeLink к addLink.
+  removePoint(p) {
+    const i = this._points.indexOf(p)
+    if (i >= 0) this._points.splice(i, 1)
+    this.world.physics.removePoint(p)
+  }
   applyAccel(p, ax, ay) { this.world.physics.applyAccel(p, ax, ay) }
   // Скорость — обычное состояние тела, и задавать её можно прямо. Раньше для
   // этого приходилось двигать «прошлое положение»: телепорт был неотличим от
@@ -156,6 +170,15 @@ export class EntityContext {
       if (regionHas(c, x, y)) return true
     }
     return false
+  }
+
+  // Занято ли место жидкостью — та же дверь, что solidAt, только про среду.
+  // Спрашивают её те, для кого лужа такая же преграда, как камень: поток
+  // воздуха не должен идти сквозь воду, будто её нет. Кто именно налил эту
+  // воду и что она за вещество — по-прежнему не видно.
+  liquidAt(x, y) {
+    const f = this.world.physics.fluid
+    return f.count ? f.occupiedAt(x, y) : false
   }
 
   // Кратчайший путь по графу связей до точки, удовлетворяющей pred.
@@ -219,11 +242,12 @@ export class EntityContext {
     this.world.releaseShared(this.id)
     for (const w of this._wells) this.world.physics.removeWell(w)
     this._wells = []
+    for (const m of this._mediums) this.world.physics.removeMedium(m, this._points)
     for (const b of this._bodies) this.world.physics.removeBody(b)
     for (const l of this._links) this.world.physics.removeLink(l)
     for (const p of this._points) this.world.physics.removePoint(p)
     for (const c of this._colliders) this.world.physics.removeCollider(c)
-    this._links = []; this._points = []; this._colliders = []; this._bodies = []
+    this._links = []; this._points = []; this._colliders = []; this._bodies = []; this._mediums = []
   }
 }
 
@@ -329,6 +353,15 @@ export class World {
     if (!e) { e = { value: factory(), owners: new Set() }; this.sharedStore.set(name, e) }
     e.owners.add(ownerId)
     return e.value
+  }
+
+  // Заглянуть в общую среду, не заводя её и не становясь владельцем. Нужно
+  // тем, кто хочет учесть чужую среду, если она есть, но не обязан её
+  // создавать: воздух спрашивает про воду, вода — про воздух, и ни один из
+  // них не тянет за собой второго.
+  sharedPeek(name) {
+    const e = this.sharedStore.get(name)
+    return e ? e.value : null
   }
 
   releaseShared(ownerId) {
