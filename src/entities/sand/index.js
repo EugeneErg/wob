@@ -145,18 +145,25 @@ export default defineEntity({
 // Жест достаётся одной куче песка, а копать надо во всех: соседи своего типа
 // доступны через ctx.peers(), чужие сущности по-прежнему невидимы.
 function carve(rt, ctx, a, b, data) {
-  const cut = capsule(a.x, a.y, b.x, b.y, data.dig ?? 14)
-  dig(ctx, rt, cut)
-  for (const peer of ctx.peers()) if (peer.rt) dig(ctx, peer.rt, cut)
+  const r = data.dig ?? 14
+  const cut = capsule(a.x, a.y, b.x, b.y, r)
+  // Где именно копнули: этот прямоугольник избавляет тех, кто держит
+  // геометрию разложенной по сетке, от пересчёта всего тела.
+  const dirty = {
+    x: Math.min(a.x, b.x) - r, y: Math.min(a.y, b.y) - r,
+    w: Math.abs(b.x - a.x) + r * 2, h: Math.abs(b.y - a.y) + r * 2,
+  }
+  dig(ctx, rt, cut, dirty)
+  for (const peer of ctx.peers()) if (peer.rt) dig(ctx, peer.rt, cut, dirty)
 }
 
-function dig(ctx, rt, cut) {
+function dig(ctx, rt, cut, dirty) {
   if (!rt.polys || !rt.polys.length || !rt.c) return
   let left
   try { left = polygonClipping.difference(rt.polys, cut) } catch { return }
   if (!left) return
   if (!left.length) { rt.polys = []; ctx.removeCollider(rt.c); rt.c = null; return }
   rt.polys = left
-  ctx.setRegion(rt.c, left)
+  ctx.setRegion(rt.c, left, dirty)
   rt.dug = (rt.dug || 0) + 1
 }

@@ -369,7 +369,11 @@ export class Physics {
     return c
   }
 
-  setRegion(c, polys) {
+  // dirty — прямоугольник, в котором геометрия изменилась. Копание меняет
+  // пятачок под курсором, а не всё тело, и тем, кто раскладывает геометрию по
+  // сетке, незачем пересчитывать её целиком. Не передали — считаем, что
+  // изменилось всё.
+  setRegion(c, polys, dirty) {
     c.polys = polys
     c.rings = ringsOf(polys)
     c.points = c.rings[0] || []
@@ -378,6 +382,16 @@ export class Physics {
     for (const r of c.rings) n += r.length
     c.index = n > EDGES_MIN ? new EdgeIndex(polys) : null
     c.stamp = (c.stamp || 0) + 1   // граница изменилась: пересобрать призраков
+    if (dirty) {
+      // Области копятся, пока их кто-нибудь не заберёт: за кадр штрихов может
+      // быть несколько, а пересборка одна.
+      const d = c.dirty
+      c.dirty = d ? {
+        x: Math.min(d.x, dirty.x), y: Math.min(d.y, dirty.y),
+        w: Math.max(d.x + d.w, dirty.x + dirty.w) - Math.min(d.x, dirty.x),
+        h: Math.max(d.y + d.h, dirty.y + dirty.h) - Math.min(d.y, dirty.y),
+      } : { ...dirty }
+    } else c.dirty = null
     return c
   }
 

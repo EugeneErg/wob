@@ -114,7 +114,7 @@ export class EntityContext {
   }
   removeCollider(c) { this.world.physics.removeCollider(c) }
   // Заменить область коллайдера — так копают песок и рушат стены
-  setRegion(c, polys) { return this.world.physics.setRegion(c, polys) }
+  setRegion(c, polys, dirty) { return this.world.physics.setRegion(c, polys, dirty) }
   removeLink(l) { this.world.physics.removeLink(l) }
   // Убрать свою точку. Симметрично addPoint — как removeLink к addLink.
   removePoint(p) {

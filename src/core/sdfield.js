@@ -15,6 +15,17 @@
 // поле по природе своей изломано.
 
 import { regionHas } from './grid.js'
+
+const unite = (a, b) => ({
+  x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+  w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x),
+  h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y),
+})
+const countStatic = (cols) => {
+  let n = 0
+  for (const c of cols) if (!c.dynamic && !c.removed) n++
+  return n
+}
 import { closestOnSegmentInto } from './geom.js'
 
 const seg = { x: 0, y: 0, t: 0 }
@@ -41,9 +52,61 @@ export class StaticField {
   sync(colliders, bounds, maxDist) {
     const key = StaticField.keyOf(colliders)
     if (this.ready && key === this.key) return true
+
+    // Копают пятачок под курсором, а не всё тело. Если каждый изменившийся
+    // сказал, ГДЕ он изменился, пересчитываем только эту область — иначе при
+    // копании поле собиралось бы заново каждый кадр, а это 40 мс.
+    let patch = null, partial = this.ready
+    if (partial) {
+      for (const c of colliders) {
+        if (c.dynamic || c.removed) continue
+        if ((c.stamp || 0) === (this._stamps && this._stamps.get(c.id))) continue
+        if (!c.dirty) { partial = false; break }
+        patch = patch ? unite(patch, c.dirty) : { ...c.dirty }
+      }
+      // Тело могли и добавить, и убрать — тогда область неизвестна.
+      if (partial && this._stamps && this._stamps.size !== countStatic(colliders)) partial = false
+    }
+
     this.key = key
-    this.build(colliders, bounds, maxDist)
+    if (partial && patch) this.rebuild(colliders, patch)
+    else this.build(colliders, bounds, maxDist)
+
+    this._stamps = new Map()
+    for (const c of colliders) {
+      if (c.dynamic || c.removed) continue
+      this._stamps.set(c.id, c.stamp || 0)
+      c.dirty = null
+    }
     return this.ready
+  }
+
+  // Пересчитать поле в прямоугольнике. Расширяем его на far: дальше этого
+  // расстояние измениться не могло — там оно и так упёрлось в потолок.
+  rebuild(colliders, rect) {
+    this.stat = colliders.filter((c) => !c.dynamic && !c.removed && c.rings && c.rings.length)
+    if (!this.stat.length) { this.ready = false; return }
+    const cell = this.cell, far = this.far
+    const i0 = Math.max(0, Math.floor((rect.x - far - this.x0) / cell))
+    const i1 = Math.min(this.nx - 1, Math.ceil((rect.x + rect.w + far - this.x0) / cell))
+    const j0 = Math.max(0, Math.floor((rect.y - far - this.y0) / cell))
+    const j1 = Math.min(this.ny - 1, Math.ceil((rect.y + rect.h + far - this.y0) / cell))
+    const d = this.d, inside = this.in, nx = this.nx
+    for (let j = j0; j <= j1; j++) {
+      const y = this.y0 + j * cell
+      for (let i = i0; i <= i1; i++) {
+        const x = this.x0 + i * cell
+        const k = j * nx + i
+        let hit = 0
+        for (const c of this.stat) { if (regionHas(c, x, y)) { hit = 1; break } }
+        inside[k] = hit
+        const dd = Math.min(far, this._exact(x, y))
+        const c = this._hit
+        this.sm[k] = c ? (c.smoothness ?? 0.5) : 0.5
+        this.rs[k] = c ? (c.restitution ?? 0.2) : 0.2
+        d[k] = hit ? -dd : dd
+      }
+    }
   }
 
   build(colliders, bounds, maxDist) {
