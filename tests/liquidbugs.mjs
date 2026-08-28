@@ -58,3 +58,38 @@ const drops = (w) => w.physics.points.filter((p) => p.owner === 'w' && !p.remove
   const deepest = inCup.length ? Math.max(...inCup.map((p) => p.y)) : 0
   console.log(`3. лунка: ${inCup.length} частиц, самая нижняя на ${deepest.toFixed(0)} (дно стакана ~770) ⇒ ${deepest > 745 ? 'наполнилась' : 'ЗАСТРЯЛА'}`)
 }
+
+// --- вытекшая вода не оставляет призрака ------------------------------------
+{
+  // Пол только слева: вода стечёт вправо и покинет уровень.
+  const w = new World({
+    width: 1200, height: 800, gravity: { x: 0, y: 1800 },
+    entities: [
+      terr('f', 0, 740, 300, 800),
+      { id: 'w', type: 'liquid', data: { points: wall(500, 200, 700, 340), polys: null, substance: 'water', grain: 11, limit: 300 } },
+    ],
+  })
+  w.step(1 / 60)
+  for (let i = 0; i < 60 * 20; i++) w.step(1 / 60)
+  const left = drops(w).length
+  const shapes = w.scene().filter((s) => s.k === 'path' && s.d && s.fill === '#3fb2cf')
+  console.log(`1. вода вытекла: осталось ${left} частиц, фигур воды ${shapes.length} ⇒ ${left === 0 && shapes.length === 0 ? 'призрака нет' : 'ОСТАЛСЯ КОНТУР ОБЛАСТИ'}`)
+}
+
+// --- тонкая стенка не просвечивает ------------------------------------------
+{
+  const w = new World({
+    width: 1200, height: 800, gravity: { x: 0, y: 1800 },
+    entities: [
+      terr('f', 0, 700, 1200, 800), terr('l', 300, 400, 340, 700),
+      terr('r', 800, 400, 808, 700),          // стенка всего 8 px
+      { id: 'w', type: 'liquid', data: { points: wall(345, 500, 795, 695), polys: null, substance: 'water', grain: 11, limit: 900 } },
+    ],
+  })
+  for (let i = 0; i < 300; i++) w.step(1 / 60)
+  const d = w.scene().filter((s) => s.k === 'path' && s.fill === '#3fb2cf').map((s) => s.d).join('')
+  const pts = [...d.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((m) => [+m[1], +m[2]])
+  const beyond = pts.filter((p) => p[0] > 812).length
+  const parts = drops(w).filter((p) => p.x > 812).length
+  console.log(`2. тонкая стенка: частиц за ней ${parts}, точек контура за ней ${beyond} ⇒ ${beyond === 0 ? 'просвета нет' : 'ПРОСВЕЧИВАЕТ'}`)
+}

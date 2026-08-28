@@ -153,7 +153,10 @@ export default defineEntity({
 
   shapes(data, rt, ctx) {
     const s = substanceOf(data)
-    if (!rt || !rt.points?.length) {
+    // Контур области — это ПРЕВЬЮ РЕДАКТОРА, где рантайма нет вовсе. Проверять
+    // «нет частиц» здесь нельзя: вода могла вытечь с уровня, и тогда на месте
+    // былой лужи проступал бы призрак того, чего давно нет.
+    if (!rt) {
       const polys = asMulti(data)
       if (!polys.length) return []
       return [{ k: 'path', d: pathOf(polys), fill: s.fill, stroke: s.edge, sw: 2, fillRule: 'evenodd', opacity: 0.55 }]
