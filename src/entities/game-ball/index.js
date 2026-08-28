@@ -59,8 +59,8 @@ export default defineEntity({
     return {
       p, state: 'free', walk: null, climb: null, links: [], preview: [], ghost: null,
       asleep: !!data.asleep, hover: false,
-      cd: 0, dir: Math.random() < 0.5 ? -1 : 1, pause: 0, retreat: 0, look: { x: 0, y: 1 },
-      phase: Math.random() * Math.PI * 2, rate: 3.0 + Math.random() * 1.8, gait: 1,
+      cd: 0, dir: ctx.rng.sign(), pause: 0, retreat: 0, look: { x: 0, y: 1 },
+      phase: ctx.rng.range(0, Math.PI * 2), rate: ctx.rng.range(3.0, 4.8), gait: 1,
     }
   },
 
@@ -418,8 +418,8 @@ function roam(rt, ctx, dt, data) {
     // за краем: спрыгнуть можно, если внизу есть дно и конструкция в той стороне
     const toward = !target || Math.sign(side) === rt.dir
     if (!(drop !== null && toward)) {
-      rt.pause = 0.35 + Math.random() * 0.3
-      rt.retreat = 1.1 + Math.random() * 0.8   // отходим от края, потом вернёмся
+      rt.pause = ctx.rng.range(0.35, 0.65)
+      rt.retreat = ctx.rng.range(1.1, 1.9)   // отходим от края, потом вернёмся
       go = 0
     }
   }
@@ -436,7 +436,7 @@ function roam(rt, ctx, dt, data) {
       const j = data.jump ?? 470
       p.vx = -dn.x * j
       p.vy = -dn.y * j
-      rt.cd = 0.45 + Math.random() * 0.35
+      rt.cd = ctx.rng.range(0.45, 0.8)
     }
   }
 
@@ -531,6 +531,6 @@ function nextLink(ctx, node, curLink) {
     if (l) return l
   }
   const opts = ok.filter((l) => l !== curLink)
-  if (opts.length) return opts[(Math.random() * opts.length) | 0]
+  if (opts.length) return ctx.rng.pick(opts)
   return ok.includes(curLink) ? curLink : null
 }

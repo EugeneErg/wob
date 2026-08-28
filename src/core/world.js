@@ -4,7 +4,18 @@ import { EVENTS } from './globals.js'
 import { closestOnSegment, bboxOfPoints } from './geom.js'
 import { regionHas } from './grid.js'
 import { composeShapes } from './scene.js'
+import { Rng, DEFAULT_SEED } from './rng.js'
+import { TICK_DT } from './clock.js'
 
+// Имя сущности, которую автор поставил в редакторе. Здесь случайность
+// безвредна и даже нужна: имя попадает в сохранённый уровень, то есть у всех,
+// кто потом его играет и смотрит записи, оно одно и то же. А счётчик без
+// случайного хвоста после перезагрузки страницы начнётся заново и выдаст имя,
+// которое в этом уровне уже занято.
+//
+// Рантаймовые имена — другое дело: их выдаёт мир во время игры (спавн из
+// эмиттера), в контент они не попадают, и вот там случайность ломает повтор.
+// Их считает счётчик внутри World, у каждой попытки свой.
 let UID = 1
 export const newId = (prefix = 'e') => `${prefix}${UID++}${Math.random().toString(36).slice(2, 6)}`
 
@@ -43,6 +54,13 @@ export class EntityContext {
   get time() { return this.world.time }
   get bounds() { return this.world.bounds }
   get pointer() { return this.world.pointer }
+
+  // Случайность сущности обязана идти отсюда, а не из Math.random(): это
+  // общий на весь мир детерминированный поток, зависящий только от seed
+  // уровня и от того, сколько раз его уже спрашивали — то есть от истории
+  // тиков, а не от времени на часах. Тот же ввод в тот же тик — тот же
+  // результат, сколько бы раз уровень ни переигрывали.
+  get rng() { return this.world.rng }
 
   // Шина сигналов: одна сущность пишет значение по имени, другая читает.
   // Имя придумывает автор уровня в редакторе, поэтому сущности по-прежнему
@@ -332,7 +350,10 @@ function depth(inst, world, guard = 0) {
 }
 
 export class World {
-  constructor(level) {
+  // seed: явный сид ГСЧ. Передаётся при начале попытки (записывается в реплей)
+  // и при воспроизведении реплея (берётся из записи) — иначе одна и та же
+  // запись ввода приводила бы к разным мирам на разных прогонах.
+  constructor(level, { seed = DEFAULT_SEED } = {}) {
     this.level = level
     this.bounds = { x: 0, y: 0, w: level.width || 1600, h: level.height || 900 }
     this.physics = new Physics({ gravity: level.gravity || { x: 0, y: 1800 }, bounds: this.bounds })
@@ -345,6 +366,12 @@ export class World {
     this.sharedStore = new Map()
     this.frame = 0
     this.missing = []   // типы, которых нет в сборке — уровень их не потерял, но и не показал
+    this.seed = seed
+    this.rng = new Rng(seed)
+    // Нумерация сущностей своя у каждого мира: две попытки одного уровня —
+    // два одинаковых ряда имён, а открытый рядом предпросмотр редактора
+    // не сдвигает нумерацию игровой попытки.
+    this._uid = 1
     for (const e of level.entities || []) this.spawn(e.type, e.data, e.id, e.parent)
   }
 
@@ -393,7 +420,7 @@ export class World {
       return null
     }
     const inst = {
-      id: id || newId(type + '-'),
+      id: id || `${type}-${this._uid++}`,
       type, def, parent,
       data: structuredClone(data ?? def.defaults()),
       rt: null,
@@ -418,7 +445,12 @@ export class World {
     if (this._drag === inst) this._drag = null
   }
 
-  step(dt) {
+  // dt по умолчанию — TICK_DT (фиксированный тик игровой логики). World сам
+  // не проверяет, что ему передают именно TICK_DT (тесты и редактор дёргают
+  // step с произвольным dt напрямую), но для детерминированного повтора
+  // вызывающая сторона обязана всегда передавать один и тот же TICK_DT,
+  // целыми тиками — это гарантирует FixedClock в WorldCanvas.
+  step(dt = TICK_DT) {
     // сначала сущности выставляют силы и своё состояние, потом мир их интегрирует
     this.time += dt
     this.frame++

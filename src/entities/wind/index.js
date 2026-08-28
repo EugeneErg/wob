@@ -31,7 +31,7 @@ export default defineEntity({
     const b = ctx.bounds
     const streaks = []
     for (let i = 0; i < STREAKS; i++) {
-      streaks.push({ x: b.x + Math.random() * b.w, y: b.y + Math.random() * b.h, len: 20 + Math.random() * 40 })
+      streaks.push({ x: b.x + ctx.rng.next() * b.w, y: b.y + ctx.rng.next() * b.h, len: ctx.rng.range(20, 60) })
     }
     return { streaks, air: { x: 0, y: 0 } }
   },

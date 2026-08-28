@@ -99,6 +99,12 @@ export function removeChapter(id, keepStory = false) {
   const used = new Set(lib.chapters.filter((c) => c.id !== id).flatMap((c) => c.nodes.map((n) => n.levelId)))
   lib.levels = lib.levels.filter((l) => used.has(l.id) || !ch.nodes.some((n) => n.levelId === l.id))
   lib.chapters = lib.chapters.filter((c) => c.id !== id)
+  // Узлы, которые выводили в удалённую главу, перестают быть выходами. Оставить
+  // привязку висеть нельзя: узел выглядел бы выходом, вёл бы в никуда, и глава
+  // засчитывалась бы пройденной по несуществующей дороге.
+  for (const c of lib.chapters) {
+    for (const n of c.nodes) if (n.next === id) delete n.next
+  }
   if (!keepStory) {
     const s = story(ch.storyId)
     if (s) s.chapters = s.chapters.filter((x) => x !== id)
@@ -261,12 +267,29 @@ export function importBundle(bundle) {
     map.set(l.id, id)
     lib.levels.push({ ...structuredClone(l), id, hot: (l.hot || []).map((h) => map.get(h) || h) })
   }
+  // Имена всем главам пакета раздаются ДО того, как собираются сами главы.
+  // Иначе привязка на главу, которая лежит в пакете ниже, не найдёт её нового
+  // имени: в тот момент его ещё не существует, и ссылка уехала бы на старое.
+  const inBundle = new Set((bundle.chapters || []).map((c) => c.id))
   for (const c of bundle.chapters || []) {
-    const id = taken(lib.chapters, c.id) ? fresh(c.id, 'ch') : c.id
-    map.set(c.id, id)
+    map.set(c.id, taken(lib.chapters, c.id) ? fresh(c.id, 'ch') : c.id)
+  }
+  for (const c of bundle.chapters || []) {
+    const id = map.get(c.id)
     lib.chapters.push({
       ...structuredClone(c), id,
-      nodes: c.nodes.map((n) => ({ ...n, levelId: map.get(n.levelId) || n.levelId })),
+      // next — ссылка на главу, и при ввозе она обязана указывать на главу
+      // ИЗ ЭТОГО ЖЕ пакета. Если главы-цели в пакете нет, ссылка снимается:
+      // оставить её — значит вывести привезённую главу в чужую историю, где
+      // случайно совпал id. Автор привяжет заново, и это честнее.
+      // next снимается через раскладку, а не «добавляется при условии»:
+      // ...n уже принесла бы старую ссылку с собой, и условная вставка могла бы
+      // её только перезаписать, но не убрать.
+      nodes: c.nodes.map(({ next, ...n }) => ({
+        ...n,
+        levelId: map.get(n.levelId) || n.levelId,
+        ...(next && inBundle.has(next) ? { next: map.get(next) } : {}),
+      })),
       edges: c.edges.map((e) => ({ from: map.get(e.from) || e.from, to: map.get(e.to) || e.to })),
       hot: (c.hot || []).map((h) => map.get(h) || h),
     })
@@ -291,6 +314,12 @@ export function importBundle(bundle) {
   for (const c of lib.chapters) {
     const owner = lib.stories.find((s) => s.chapters.includes(c.id))
     if (owner) c.storyId = owner.id
+  }
+  // Привезли главу, а ту, в которую она выводила, — нет. Ссылка в никуда
+  // хуже её отсутствия: узел выглядел бы выходом. Снимаем, автор привяжет заново.
+  const known = new Set(lib.chapters.map((c) => c.id))
+  for (const c of lib.chapters) {
+    for (const n of c.nodes) if (n.next && !known.has(n.next)) delete n.next
   }
   save()
   return added

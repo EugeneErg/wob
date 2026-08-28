@@ -10,19 +10,46 @@
         <button class="btn primary" @click="$emit('go', 'play')">Играть</button>
         <button class="btn" @click="$emit('go', 'editor')">Редактор историй</button>
       </nav>
+
+      <!-- Частота отрисовки. Стоит в меню, а не только на паузе: задать её
+           хочется до начала попытки, а не посреди неё. На результат она не
+           влияет — симуляция идёт фиксированными тиками. -->
+      <label class="fps">
+        <span>Кадров в секунду</span>
+        <select :value="fpsCap" @change="setFps(+$event.target.value)">
+          <option v-for="f in FPS_OPTIONS" :key="f" :value="f">{{ fpsLabel(f) }}</option>
+        </select>
+        <i>симуляция всегда 60 тиков в секунду — результат от этого не зависит</i>
+      </label>
     </div>
   </div>
 </template>
 
 <script setup>
 import WorldCanvas from '../components/WorldCanvas.vue'
+import { ref } from 'vue'
 import demo from '../levels/menu.json'   // фон меню — обычный уровень
+import { settings, setSetting, FPS_OPTIONS, fpsLabel } from '../core/settings.js'
 defineEmits(['go'])
+
+const fpsCap = ref(settings().fpsCap)
+const setFps = (v) => { fpsCap.value = v; setSetting('fpsCap', v) }
 
 </script>
 
 <style scoped>
 .menu { position: absolute; inset: 0; overflow: hidden; }
+.fps { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.fps span { display: block; margin-bottom: 5px; }
+.fps select {
+  font: inherit; font-size: 12px; padding: 6px 10px; min-width: 160px;
+  background: rgba(16, 26, 32, 0.9); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.fps i {
+  display: block; margin-top: 6px; font-style: normal;
+  font-family: var(--font-mono); font-size: 10px; opacity: 0.7;
+}
 .bg { position: absolute; inset: 0; }
 .veil {
   position: absolute; inset: 0; pointer-events: none;

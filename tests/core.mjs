@@ -5,12 +5,11 @@
 // лежит и не дрожит, твёрдое тело не разъезжается, гладкость разводит случаи.
 
 import { Physics } from '../src/core/solver.js'
+import { check } from './assert.mjs'
 
-let fails = 0
-const ok = (name, cond, info = '') => {
-  if (!cond) fails++
-  console.log(`${cond ? '  ok  ' : ' FAIL '} ${name}${info ? '   ' + info : ''}`)
-}
+// Свой счётчик провалов здесь был, но прогон о нём не знал: файл завершался
+// успешно даже с надписью FAIL. check() из assert.mjs выставляет код выхода.
+const ok = (name, cond, info = '') => check(name, cond, info)
 const near = (a, b, eps) => Math.abs(a - b) <= eps
 
 const run = (phys, seconds, dt = 1 / 60) => {
@@ -151,5 +150,4 @@ const ground = (phys, y = 700, sm = 0.5) =>
   ok('хранилище: запись через ручку идёт по адресу', b.x === 42 && phys.points[0] === b)
 }
 
-console.log(fails ? `\n${fails} проверок не прошло` : '\nвсё прошло')
-process.exit(fails ? 1 : 0)
+// Итог и код выхода выставляет assert.mjs

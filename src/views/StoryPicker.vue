@@ -41,6 +41,7 @@
 <script setup>
 import { ref } from 'vue'
 import * as lib from '../core/library.js'
+import { loadState } from '../core/debug.js'
 import { downloadJSON, pickJSON, pickImage, fileName, coverStyle } from '../core/fileio.js'
 
 defineProps({ mode: { type: String, default: 'play' } })
@@ -70,7 +71,23 @@ const save = (s) => downloadJSON(lib.exportStory(s.id), fileName('story', s.titl
 const dump = () => downloadJSON(lib.exportAll(), 'goo-library')
 async function doImport() {
   try {
-    const added = lib.importBundle(await pickJSON())
+    const data = await pickJSON()
+
+    // Отладочная выгрузка (F10 в игре) — это не пакет с историями, а слепок
+    // всего состояния: библиотека, прогресс, записи, выпуски. Отличается она
+    // полем storage. Загружать её надо целиком и с предупреждением: она
+    // ЗАМЕНЯЕТ всё, а не добавляет, — иначе чужой случай не воспроизвести.
+    if (data?.storage) {
+      const where = data.now?.levelId ? ` (уровень ${data.now.levelId}, тик ${data.now.tick ?? '?'})` : ''
+      if (!confirm(`Это отладочная выгрузка от ${new Date(data.at).toLocaleString('ru-RU')}${where}.\n\n`
+        + 'Вся текущая библиотека, прогресс и записи будут заменены. Продолжить?')) return
+      loadState(data)
+      refresh()
+      alert('Состояние загружено. Найдите попытку в списке записей и пересмотрите её.')
+      return
+    }
+
+    const added = lib.importBundle(data)
     refresh()
     alert(added.length ? `Загружено: ${added.map((s) => s.title).join(', ')}` : 'Файл прочитан')
   } catch (e) { alert(e.message) }

@@ -181,16 +181,19 @@ class Collision {
   set fluid(v) { this._h._bit(F_FLUID, v) }
 }
 
-let UID = 1
-
 export class Point {
-  constructor(store, i, id) {
+  // Имени у точки нет. Оно было — счётчик на уровне модуля раздавал p1, p2, ...
+  // Но его никто не читал: ни физика, ни сущности, ни тесты. При этом счётчик
+  // жил на всю вкладку и нумеровал точки по порядку запуска уровней, так что
+  // один и тот же уровень получал разные имена, если открыть его не первым.
+  // Отладочный ярлык, который врал, — хуже, чем никакого: точку и так видно
+  // по индексу в хранилище (_i), и он честно один и тот же в каждом прогоне.
+  constructor(store, i) {
     // Хранилище и индекс — служебные и НЕПЕРЕЧИСЛИМЫЕ: сущность видит про чужое
     // тело ровно то, что перечислено в globals, и внутренности ядра туда
     // попадать не должны (за этим следит tests/contract.mjs).
     Object.defineProperty(this, '_s', { value: store, writable: true })
     Object.defineProperty(this, '_i', { value: i, writable: true })
-    this.id = id || 'p' + UID++
     this.links = []
     this.removed = false
     this.collision = new Collision(this)

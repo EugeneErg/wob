@@ -52,8 +52,12 @@ import { ShapeMatching } from './constraints/shape.js'
 import { Contacts } from './constraints/contact.js'
 import { FluidDensity, makeMedium, sameSubstance } from './constraints/fluid.js'
 
-let UID = 1
-const nid = (p) => p + UID++
+// Имён у физических примитивов нет. Точка, связь, коллайдер, тело и среда
+// живут в списках и находятся по ссылке — имя им нужно не было ни разу.
+// Раздавал их счётчик на уровне модуля, общий на всю вкладку; из-за него
+// один и тот же уровень получал p4, p5... при первом запуске и p50, p51...
+// при четвёртом. На счёт это не влияло (имена никто не читал), но как ярлык
+// для отладки такое имя бесполезно: в двух прогонах одного уровня оно разное.
 
 // Горячие циклы подшага вынесены из него отдельными функциями.
 //
@@ -144,6 +148,7 @@ export class Physics {
     this._points = []
     this._pgen = -1
 
+
     // Конвейер ограничений. Порядок задаётся полем order; состав меняется
     // снаружи — этим и отличается «условно PBF-движок» от движка, к которому
     // PBF пришит сбоку.
@@ -190,7 +195,7 @@ export class Physics {
   addPoint(o = {}) {
     const s = this.store
     const i = s.alloc()
-    const p = new Point(s, i, nid('p'))
+    const p = new Point(s, i)
     s.handle[i] = p
 
     s.x[i] = o.x || 0; s.y[i] = o.y || 0
@@ -248,7 +253,7 @@ export class Physics {
   // ---- связи ---------------------------------------------------------------
   addLink(a, b, o = {}) {
     const l = {
-      id: nid('l'), a, b,
+      a, b,
       rest: o.rest ?? Math.hypot(a.x - b.x, a.y - b.y),
       spring: o.spring ?? 2500,        // сила на пиксель растяжения
       damping: clamp(o.damping ?? 0.2, 0, 1),
@@ -278,7 +283,7 @@ export class Physics {
   addBody(o = {}) {
     const verts = [...(o.points || [])]
     const b = {
-      id: nid('b'), verts, rest: null,
+      verts, rest: null,
       stiffness: clamp(o.stiffness ?? 1, 0, 1),
       removed: false,
     }
@@ -302,7 +307,7 @@ export class Physics {
       for (const p of o.points || []) same.points.push(p)
       return same
     }
-    const m = makeMedium({ ...o, id: nid('m') })
+    const m = makeMedium({ ...o })
     this.mediums.push(m)
     this.fluid.mediums = this.mediums
     if (!this.modules.includes(this.fluid)) this.use(this.fluid)
@@ -353,7 +358,6 @@ export class Physics {
   // ---- статическая геометрия ----------------------------------------------
   addCollider(o = {}) {
     const c = {
-      id: nid('c'),
       verts: o.verts ? [...o.verts] : null,        // если заданы — геометрия живая
       points: o.verts ? o.verts.map((p) => [p.x, p.y]) : (o.points || []),
       polys: null,

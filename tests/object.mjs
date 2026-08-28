@@ -1,8 +1,10 @@
 import '../src/entities/index.js'
 import { World } from '../src/core/world.js'
 
+let objN = 0
 const box = (x, y, w, h, extra = {}) => ({
-  id: 'o' + Math.random().toString(36).slice(2, 6), type: 'object',
+  // имя без случайности: одинаковый прогон должен давать одинаковый вывод
+  id: `o${++objN}`, type: 'object',
   data: { points: [[x, y], [x + w, y], [x + w, y + h], [x, y + h]], mass: 6, smoothness: 0.4, restitution: 0.1, static: false, fill: '#5c5346', edge: '#8d7f68', ...extra },
 })
 const ground = { id: 'g', type: 'terrain', data: { points: [[0, 780], [1600, 780], [1600, 900], [0, 900]], smoothness: 0.35, fill: '#2a3326', edge: '#66804f' } }

@@ -2,6 +2,12 @@ import '../src/entities/index.js'
 import { World } from '../src/core/world.js'
 import { level } from './level.mjs'
 
+// Разброс точек броска задаётся своим маленьким генератором, а не Math.random:
+// со случайностью тест давал разные числа от прогона к прогону, и отличить
+// «физика изменилась» от «сегодня бросили левее» было невозможно.
+let seed = 12345
+const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff)
+
 const lvl = level('lvl-tower')
 const w = new World(structuredClone(lvl))
 const run = (n) => { for (let i = 0; i < n; i++) w.step(1 / 60) }
@@ -15,7 +21,7 @@ run(60)
 for (const y of [700, 650, 600, 550]) {
   // берём свободный шар подальше от кучи, чтобы не схватить соседа
   const b = balls().filter((x) => x.rt.state === 'free').sort((a, c) => a.rt.p.x - c.rt.p.x)[0]
-  drag({ x: b.rt.p.x, y: b.rt.p.y }, { x: 745 + (Math.random() * 40 - 20), y })
+  drag({ x: b.rt.p.x, y: b.rt.p.y }, { x: 745 + (rnd() * 40 - 20), y })
   run(30)
 }
 run(60)

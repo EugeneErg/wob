@@ -99,7 +99,7 @@ export default defineEntity({
     inject(f, fx, fy, nx, ny, data.nozzle, data.power * 6 * dt, 1)
 
     // и подсевает в общий поток свои пылинки — по ним видно, куда он идёт
-    if (data.show) seedMotes(rt, air, dt, data, fx, fy, nx, ny)
+    if (data.show) seedMotes(ctx, rt, air, dt, data, fx, fy, nx, ny)
   },
 
   shapes(data, rt, ctx) {
@@ -213,18 +213,18 @@ export default defineEntity({
 
 const MAX_MOTES = 220
 
-function seedMotes(rt, air, dt, data, fx, fy, nx, ny) {
+function seedMotes(ctx, rt, air, dt, data, fx, fy, nx, ny) {
   const want = Math.max(0, Math.min(26, Math.round(data.power / 40)))
   rt.seed += want * dt * 3
   while (rt.seed >= 1 && air.motes.length < MAX_MOTES) {
     rt.seed -= 1
     // рассыпаем по срезу горловины, поперёк направления
-    const t = (Math.random() * 2 - 1) * data.nozzle * 0.85
+    const t = (ctx.rng.next() * 2 - 1) * data.nozzle * 0.85
     const x = fx - ny * t + nx * data.nozzle * 0.2
     const y = fy + nx * t + ny * data.nozzle * 0.2
     air.motes.push({
       x, y, px: x, py: y, vx: nx * data.power, vy: ny * data.power,
-      life: 0, max: 1.6 + Math.random() * 1.8, color: data.color,
+      life: 0, max: ctx.rng.range(1.6, 3.4), color: data.color,
     })
   }
 }
