@@ -216,10 +216,26 @@ export function doneByChapter(run) {
 // пройденный выход уже пройденной главы. Правило то же, что у уровней внутри
 // главы, этажом выше.
 export function openChapters(story, chapters, doneMap) {
-  const own = new Set(story.chapters || [])
+  const list = story.chapters || []
+  const own = new Set(list)
+  const mine = chapters.filter((c) => own.has(c.id))
+  const routed = mine.some((c) => c.nodes.some((n) => n.next))
+
+  // Непривязанная история линейна: следующая глава открывается, когда
+  // предыдущая пройдена. Это прежнее правило, и менять его незачем — развилки
+  // нужны не всем.
+  if (!routed) {
+    const open = list.length ? [list[0]] : []
+    for (let i = 0; i < list.length - 1; i++) {
+      const ch = mine.find((c) => c.id === list[i])
+      if (ch && categoryOf(ch, doneMap.get(ch.id) || new Set())) open.push(list[i + 1])
+      else break
+    }
+    return open
+  }
+
   const open = new Set(entryChapters(story, chapters))
-  for (const ch of chapters) {
-    if (!own.has(ch.id)) continue
+  for (const ch of mine) {
     const done = doneMap.get(ch.id)
     if (!done) continue
     for (const n of ch.nodes) if (n.next && done.has(n.levelId) && own.has(n.next)) open.add(n.next)
@@ -227,11 +243,24 @@ export function openChapters(story, chapters, doneMap) {
   return [...open]
 }
 
-// Концы истории — главы, из которых никуда не ведут: пройдя такую, игрок
-// прошёл историю. Это тот же вопрос, что и с тупиками внутри главы, и ответ
-// тот же: его решают связи, а не отдельная пометка.
-export const finalChapters = (story, chapters) =>
-  chapters.filter((c) => (story.chapters || []).includes(c.id) && isLastChapter(c)).map((c) => c.id)
+// Концы истории — главы, из которых никуда не ведут.
+//
+// Но только если привязки вообще расставлены. Если автор не привязал ни одной
+// главы к следующей, то «из главы никуда не ведёт» верно про КАЖДУЮ, и концом
+// оказывается любая: пройдя первую же главу, игрок как будто проходил всю
+// историю. Именно так и случилось со встроенной библиотекой, где привязок нет.
+//
+// В непривязанной истории порядок задаёт состав: главы идут списком, как и
+// было до появления развилок, и концом считается последняя. Это не запасной
+// вариант «на всякий случай», а нормальный: линейной истории привязки не нужны,
+// и требовать их от автора не за что.
+export function finalChapters(story, chapters) {
+  const own = (story.chapters || [])
+  const mine = chapters.filter((c) => own.includes(c.id))
+  const routed = mine.some((c) => c.nodes.some((n) => n.next))
+  if (routed) return mine.filter((c) => isLastChapter(c)).map((c) => c.id)
+  return own.length ? [own[own.length - 1]] : []
+}
 
 // Категория прохождения истории.
 //   100% — каждая глава истории пройдена на 100%, то есть все ветки везде;

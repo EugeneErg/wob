@@ -24,6 +24,12 @@
     <div class="hud">
       <button class="btn ghost small" @click="leave">← Уровни</button>
 
+      <!-- Цель выполнена, но решает игрок: пока не нажал, можно играть дальше
+           и загонять шары сверх нормы. -->
+      <button v-if="reached && !won && mode === 'play'" class="btn small primary end" @click="finishNow">
+        Закончить<i>{{ clock }}</i>
+      </button>
+
       <div class="counter" :class="{ done: collected >= playLevel.goal }">
         <span class="num">{{ collected }}</span>
         <span class="of">/ {{ playLevel.goal }}</span>
@@ -193,6 +199,7 @@ const fps = ref(0)
 const tick = ref(0)
 const time = ref(0)
 const won = ref(false)
+const reached = ref(false)   // цель выполнена, но игрок ещё не закончил
 const total = ref(0)
 const seeking = ref(false)
 const progress = ref(1)
@@ -282,17 +289,26 @@ function frameStep(n) {
   canvas.value?.stepFrames(n)
 }
 
-watch(collected, async (n) => {
-  if (n < playLevel.value.goal || won.value) return
+// Цель достигнута — но уровень не заканчивается сам.
+//
+// Раньше он завершался в тот же миг, и это отбирало у игрока решение: вдруг он
+// хочет загнать в трубу ещё шаров, чем требуется. Теперь появляется кнопка
+// «Закончить», а до неё игра продолжается как ни в чём не бывало — часы идут,
+// шары двигаются. Нажатие и есть конец попытки.
+watch(collected, (n) => {
+  if (n >= playLevel.value.goal) reached.value = true
+})
+
+async function finishNow() {
+  if (won.value || props.mode !== 'play') return
   won.value = true
-  if (props.mode !== 'play') return
   canvas.value?.finish()
   // Общий прогресс пишет только обычное прохождение. В спидране прошлые
   // заслуги не в счёт: там открыто ровно то, что открыто в этой попытке,
   // иначе можно было бы начать главу с середины по старому сохранению.
   if (!props.speedrun) markDone(props.level.id)
   await store()
-})
+}
 
 // Каждая попытка сохраняется целиком — и удачная, и брошенная: посмотреть
 // «как я слил» бывает нужнее, чем посмотреть удачный прогон.
@@ -356,6 +372,7 @@ function rewind(seconds) {
 function restart() {
   collected.value = 0
   won.value = false
+  reached.value = false
   saved.value = false
   paused.value = false
   canvas.value.restart()
@@ -408,6 +425,8 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onHidden)
 .counter .of { font-family: var(--font-mono); color: var(--muted); font-size: 14px; }
 .counter .cap { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
 .counter.done .num { color: var(--moss); }
+.end { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.end i { font-style: normal; font-family: var(--font-mono); font-size: 10px; opacity: 0.8; }
 
 .timer {
   margin-right: auto;

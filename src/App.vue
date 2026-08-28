@@ -118,6 +118,8 @@ const chain = ref(null)
 // Спидран наследуется вниз, обычное прохождение — нет. Поэтому вопрос о режиме
 // задаётся ровно там, где спидран ещё не начат.
 const srScope = ref(null)
+// Выбрали ли спидран ещё в главном меню
+const entrySpeedrun = ref(false)
 const speedrun = computed(() => srScope.value !== null)
 // Счётчик заходов: пересоздаёт GameView при повторном входе на тот же уровень,
 // иначе Vue переиспользовал бы компонент и мир остался бы от прошлого захода.
@@ -190,6 +192,11 @@ function stopWatching() {
 
 function go(where) {
   mode.value = where === 'editor' ? 'edit' : 'play'
+  // Спидран, выбранный на входе, начинается на самом верху: открытая дальше
+  // история станет попыткой целиком, и переспрашивать её незачем.
+  entrySpeedrun.value = where === 'speedrun'
+  srScope.value = null
+  chain.value = null
   at.value = 'stories'
 }
 function openStory(id) {
@@ -199,6 +206,8 @@ function openStory(id) {
   // По умолчанию предлагаем последний выпуск: играть свежее выпущенное —
   // разумное умолчание, а черновик автора можно выбрать явно.
   releaseId.value = mode.value === 'play' ? (latestRelease(id)?.id || null) : null
+  // Режим выбран на входе — история сразу становится попыткой.
+  if (entrySpeedrun.value) startStory(true)
   at.value = 'chapters'
 }
 

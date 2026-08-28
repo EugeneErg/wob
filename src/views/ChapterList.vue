@@ -175,11 +175,14 @@ const igt = computed(() => (props.run ? formatTime(props.run.ticks) : '0.000'))
 // спрашивать ли вообще, живёт в modes.js и проверено тестом.
 // Выпуски
 const relOpen = ref(false)
-const rels = computed(() => (tick.value, releases(props.storyId)))
-const unreleased = computed(() => (tick.value, props.storyId ? drifted(props.storyId) : false))
+// Выпуски перечитываются по счётчику: публикация меняет localStorage, а Vue
+// об этом узнать не может — приходится дёргать счётчик руками.
+const relTick = ref(0)
+const rels = computed(() => (relTick.value, releases(props.storyId)))
+const unreleased = computed(() => (relTick.value, props.storyId ? drifted(props.storyId) : false))
 function doPublish() {
   const r = publish(props.storyId)
-  tick.value++
+  relTick.value++
   if (r) relOpen.value = true
 }
 const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })

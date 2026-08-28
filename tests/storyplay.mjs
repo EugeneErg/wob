@@ -84,3 +84,29 @@ const bestAfter = await bestRun(st.id, { kind: KIND.STORY })
 check('рекорд истории от неё не пострадал', bestAfter && bestAfter.id !== qRec.id,
   bestAfter ? formatTime(bestAfter.ticks) : 'нет')
 check('её сегменты помнят главу', qRec.segments.every((g) => !!g.chapterId))
+
+
+// --- линейная история не заканчивается после первой главы -------------------
+// Случай из жизни: во встроенной библиотеке привязок next нет вовсе, и правило
+// «конец истории — глава, из которой никуда не ведёт» объявляло концом каждую.
+// Игрок проходил первую главу и получал зачёт за всю историю.
+lib.resetLibrary()
+const st2 = lib.stories()[0]
+const chs2 = lib.chaptersOf(st2.id)
+check('во встроенной библиотеке привязок нет',
+  !chs2.some((c) => c.nodes.some((n) => n.next)))
+check('концом считается только последняя глава по составу',
+  finalChapters(st2, chs2).length === 1 && finalChapters(st2, chs2)[0] === st2.chapters.at(-1),
+  finalChapters(st2, chs2).join(','))
+
+const one = new ChainRun({ kind: KIND.STORY, targetId: st2.id })
+for (const n of chs2[0].nodes) one.push(seg(300), { levelId: n.levelId, chapterId: chs2[0].id })
+const m1 = doneByChapter(one)
+check('первая глава пройдена на 100%', categoryOf(chs2[0], m1.get(chs2[0].id)) === '100')
+check('но история ещё не пройдена', storyCategoryOf(st2, chs2, m1) === null)
+check('и следующая глава открылась',
+  openChapters(st2, chs2, m1).includes(chs2[1].id))
+
+for (const n of chs2[1].nodes) one.push(seg(300), { levelId: n.levelId, chapterId: chs2[1].id })
+const m2 = doneByChapter(one)
+check('после последней главы история пройдена', storyCategoryOf(st2, chs2, m2) === '100')

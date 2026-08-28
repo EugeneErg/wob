@@ -213,7 +213,11 @@ const menuStyle = computed(() => {
 })
 
 const pos = (levelId) => nodes.value.find((n) => n.levelId === levelId) || { x: 50, y: 50 }
-const visible = (e) => lib.edgeVisible(e)
+// Тропа видна, когда пройден уровень, из которого она ведёт. В идущей попытке
+// это считается по её собственному прогрессу: в спидране общий прогресс не
+// пишется вовсе, и по нему все тропы оказывались невидимыми — карта выглядела
+// набором несвязанных точек.
+const visible = (e) => (doneSet.value ? doneSet.value.has(e.from) : lib.edgeVisible(e))
 const shownEdges = computed(() =>
   (ch.value?.edges || []).filter((e) => props.mode === 'edit' || visible(e)))
 // Какие узлы открыты. Правило одно и то же, но считается по прогрессу той
