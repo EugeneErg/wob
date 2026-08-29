@@ -2,8 +2,9 @@
 // Разница в том, что бывает после: в повторе запись читают, в игре — дописывают.
 import '../src/entities/index.js'
 import { Run, replayOf, PLAY } from '../src/core/run.js'
-import { Scrubber } from '../src/core/scrub.js'
+
 import { level } from './level.mjs'
+import { Scrubber } from '../src/core/scrub.js'
 import { formatTime } from '../src/core/replays.js'
 import { check } from './assert.mjs'
 
@@ -79,3 +80,29 @@ console.log('\nспидран:')
 check('в спидране откат отклонён', refused)
 check('тик не сдвинулся', sr.tick === 140)
 check('запись осталась чистой', sr.clean && sr.branches.length === 0)
+
+// --- разглядывание прошлого не трогает попытку ------------------------------
+// На паузе полосу можно тянуть назад и смотреть, что было. Пока смотришь,
+// это не откат: попытка стоит на месте, её запись не меняется. Откат случается
+// только если игрок решит продолжить с показанного места — и тогда он записан
+// отметкой, как всякий откат.
+const live2 = played()
+const before = { tick: live2.tick, events: live2.log.events.length, branches: live2.branches.length }
+
+// смотрим назад через тот же Scrubber, каким смотрят чужие записи
+const look = new Scrubber(lvl, live2.snapshot())
+look.seek(60)
+while (look.pump(1000)) { /* пересчёт */ }
+
+console.log('\n— разглядывание на паузе')
+console.log('  смотрим тик', look.tick, 'при попытке на тике', live2.tick)
+check('попытка не сдвинулась', live2.tick === before.tick)
+check('запись не изменилась', live2.log.events.length === before.events)
+check('откатов не появилось', live2.branches.length === before.branches)
+check('и мир попытки цел', hash(live2) !== hash(look), 'показывают разные моменты')
+
+// а вот «продолжить отсюда» — уже откат, и он оставляет отметку
+live2.rollback(60)
+check('продолжили с показанного места — это записано откатом',
+  live2.branches.length === before.branches + 1 && live2.tick === 60,
+  JSON.stringify(live2.branches.at(-1)))

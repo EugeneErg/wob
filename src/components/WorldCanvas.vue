@@ -78,6 +78,14 @@ const run = shallowRef(null)
 const scrub = shallowRef(null)
 // Прогон-призрак. Идёт теми же тиками, что и основной, поэтому отставание
 // считается прямо в тиках, а не в секундах по часам.
+// Предпросмотр прошлого в живой игре.
+//
+// На паузе полосу можно тянуть назад и смотреть, что было. Это ещё не откат:
+// мир игрока стоит на месте, а показывается отдельный прогон, собранный из уже
+// записанных действий. Откат случится, только если игрок решит продолжить
+// именно оттуда, — и тогда это будет его выбор, а не побочный след разглядывания.
+const preview = shallowRef(null)
+
 const ghostRun = shallowRef(null)
 const ghostShapes = shallowRef([])
 const sim = () => (props.mode === REPLAY ? scrub.value?.run : run.value)
@@ -209,6 +217,20 @@ function loop(t) {
   frames++
   if (t - fpsAt >= 500) { fps.value = Math.round((frames * 1000) / (t - fpsAt)); frames = 0; fpsAt = t }
 
+  // Разглядывание прошлого на паузе: показываем не живой мир, а предпросмотр.
+  const pv = preview.value
+  if (pv) {
+    if (pv.busy) pv.pump()
+    pv.unpack()
+    shapes.value = pv.world.scene()
+    emit('stats', {
+      fps: fps.value, tick: pv.tick, time: pv.tick / 60, paused: true,
+      seeking: pv.busy, progress: pv.progress, total: pv.total, unpacked: pv.unpacked,
+      previewing: true,
+    })
+    return
+  }
+
   const sc = scrub.value
   // Фоновое разворачивание записи: пока зритель смотрит, запись проигрывается
   // вперёд и через равные промежутки снимается копия мира. Перемотка потом
@@ -264,8 +286,9 @@ function loop(t) {
 
   emit('stats', {
     fps: fps.value, tick: r.tick, time: r.time, paused: props.paused,
-    seeking: false, total: sc?.total ?? 0,
-    unpacked: sc ? sc.unpacked : null,
+    seeking: false, total: sc?.total ?? r.tick,
+    unpacked: sc ? sc.unpacked : -1,
+    previewing: false,
     // Отставание от призрака в тиках: минус — идём впереди записи
     ghostTick: ghostRun.value ? ghostRun.value.tick : null,
     ghostGap: ghostRun.value ? gapAt(mySplits, ghostSplits) : null,
@@ -333,6 +356,26 @@ function stop(e) {
 
 defineExpose({
   restart: () => { build(); setupCamera() },
+
+  // --- разглядывание прошлого в живой игре ---
+  // Прогон собирается из того, что игрок уже наделал: сид и записанный ввод.
+  // Мир самой попытки при этом не трогается вовсе.
+  previewAt: (tick) => {
+    const r = run.value
+    if (!r || props.mode !== PLAY) return
+    if (!preview.value) preview.value = new Scrubber(props.level, r.snapshot())
+    preview.value.seek(tick)
+  },
+  // Вернуться к попытке. commit — продолжить с показанного места (это откат)
+  // или отбросить показанное и вернуться к тому, где игрок и был.
+  endPreview: (commitTick = null) => {
+    const r = run.value
+    preview.value = null
+    if (commitTick != null && r) r.rollback(commitTick)
+    bindWorld()
+    shapes.value = sim()?.world.scene() || []
+  },
+  previewing: () => !!preview.value,
   // Отладка: сам элемент сцены и то, что о ней сейчас известно
   svgEl: () => svg.value,
   // Отладочные сведения — это запись попытки, а не слепок мира. Из сида и

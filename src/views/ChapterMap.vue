@@ -33,20 +33,6 @@
     <!-- Выбор режима. Спидран отличается тем, что открыто ровно то, что
          открыто в этой попытке: начать с середины по старому сохранению нельзя,
          и откатов внутри уровня тоже нет. -->
-    <!-- Спидран сверху наследуется — тогда не спрашиваем. Обычное прохождение
-         истории не наследуется: внутри него отдельную главу можно спидранить,
-         и это самостоятельное состязание со своим временем. -->
-    <ModePick
-      v-if="mode === 'play' && ask"
-      title="Как проходим главу?"
-      sr-note="с начала подряд, без сохранений и откатов"
-      plain-note="сохраняется, можно вернуться позже"
-      :note="routingNeeded
-        ? 'В главе несколько концов, и ни один не привязан к следующей главе — засчитать прохождение будет нельзя, пока автор этого не сделает.'
-        : 'Можно и просто играть уровни по одному — каждый со своим временем.'"
-      @pick="choose"
-    />
-
     <div class="map-wrap">
       <div
         ref="map" class="map" :style="coverStyle(ch?.image)"
@@ -106,7 +92,15 @@
           @pointerdown.stop @click.stop
         >
           <div class="menu-head">{{ selected?.name }}</div>
-          <button class="item" @click="startLevel(sel)">Играть</button>
+          <!-- Режим выбирается здесь же. Если спидран уже идёт сверху, выбора
+               нет: уровень часть той попытки, и решать за неё нечего. -->
+          <template v-if="speedrun">
+            <button class="item" @click="startLevel(sel, false)">Продолжить попытку</button>
+          </template>
+          <template v-else>
+            <button class="item" @click="startLevel(sel, false)">Прохождение</button>
+            <button class="item sr" @click="startLevel(sel, true)">Спидран уровня</button>
+          </template>
           <button class="item" @click="$emit('runs', { kind: 'level', targetId: sel })">Мои попытки</button>
         </div>
 
@@ -133,7 +127,6 @@
 import { ref, computed } from 'vue'
 import * as lib from '../core/library.js'
 import { pickImage, coverStyle } from '../core/fileio.js'
-import ModePick from '../components/ModePick.vue'
 import { shouldAsk } from '../core/modes.js'
 import { deadEnds, needsRouting, openNodes } from '../core/chain.js'
 import { formatTime } from '../core/replays.js'
@@ -190,13 +183,9 @@ const doneSet = computed(() => {
 const isDone = (id) => (doneSet.value ? doneSet.value.has(id) : lib.isDone(id))
 const igt = computed(() => (props.run ? formatTime(props.run.ticks) : '0.000'))
 
-// Спрашиваем один раз за вход в главу; спрашивать ли вообще — решает modes.js
-const asked = ref(false)
-const ask = computed(() => !asked.value && shouldAsk('chapter', props.srScope))
-const choose = (sr) => { asked.value = true; emit('start', sr) }
 const name = (id) => levelOf(id)?.name || '?'
 const chapterName = (id) => (fromRelease(id) || lib.chapter(id))?.title || '?'
-const startLevel = (id) => { sel.value = null; emit('play', id) }
+const startLevel = (id, speedrun = false) => { sel.value = null; emit('play', id, speedrun) }
 const passed = computed(() => nodes.value.filter((n) => isDone(n.levelId)).length)
 const selected = computed(() => (sel.value ? levelOf(sel.value) : null))
 const selectedNode = computed(() => nodes.value.find((n) => n.levelId === sel.value) || null)
@@ -270,11 +259,10 @@ function onUp() {
   if (props.mode !== 'edit') {
     if (!click) return
     if (isLocked(d.n)) return
-    // Второй клик по уже выбранной точке — меню: оттуда видно попытки.
-    // Первый — запуск, чтобы играть по-прежнему одним касанием.
-    if (sel.value === d.n.levelId) { sel.value = null; return }
-    if (d.long) { sel.value = d.n.levelId; return }
-    emit('play', d.n.levelId)
+    // В идущем спидране режим выбран выше — запускаем сразу, одним касанием.
+    // Иначе открываем меню: прохождение или спидран уровня, плюс записи.
+    if (props.speedrun) { emit('play', d.n.levelId, false); return }
+    sel.value = sel.value === d.n.levelId ? null : d.n.levelId
     return
   }
   if (!click) { lib.save(); return }
@@ -421,6 +409,7 @@ async function pic() {
 }
 .menu .item:hover { background: rgba(226, 112, 74, 0.16); color: #ffd9a0; }
 .menu .item.danger:hover { background: rgba(140, 59, 44, 0.3); color: #ffb9a4; }
+.item.sr { color: #ffd9a0; }
 .menu-field {
   display: block; padding: 9px 12px; border-top: 1px solid var(--line);
   font-size: 12px; color: var(--muted);

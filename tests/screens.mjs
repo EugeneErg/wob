@@ -79,23 +79,32 @@ for (const [name, props] of screens) {
   check(`${name}${lad} рисуется без ошибок`, ok, detail)
 }
 
-// Отдельно — то, ради чего экран выбора вообще нужен: в игровом ладу список
-// глав обязан предлагать спидран, пока он не начат. Если этого нет, игрок
-// просто не найдёт всю затею.
-{
-  const mod = await server.ssrLoadModule('/src/views/ChapterList.vue')
-  const app = createSSRApp(mod.default, { mode: 'play', storyId: story.id })
+// Выбор режима стоит там же, где выбор того, что играть: на карточке истории,
+// на карточке главы, в меню точки уровня. Отдельного экрана с вопросом нет —
+// решение и вход стали одним действием.
+const draw = async (path, props) => {
+  const mod = await server.ssrLoadModule(path)
+  const app = createSSRApp(mod.default, props)
   app.config.warnHandler = () => {}
-  const html = await renderToString(app)
-  check('в игре предлагается выбор режима', html.includes('Спидран'), 'ищем кнопку «Спидран»')
-  check('и объяснено, чем он отличается', html.includes('время общее'), 'подпись под кнопкой')
+  return renderToString(app)
+}
+
+{
+  const html = await draw('/src/views/MainMenu.vue', {})
+  check('в главном меню просто «Играть»', html.includes('Играть') && !html.includes('Спидран'))
 }
 {
-  const mod = await server.ssrLoadModule('/src/views/ChapterList.vue')
-  const app = createSSRApp(mod.default, { mode: 'play', storyId: story.id, srScope: 'story' })
-  app.config.warnHandler = () => {}
-  const html = await renderToString(app)
-  check('а внутри уже начатого спидрана не переспрашивается', !html.includes('Спидран истории?'))
+  const html = await draw('/src/views/StoryPicker.vue', { mode: 'play' })
+  check('у истории выбор: прохождение или спидран',
+    html.includes('Прохождение') && html.includes('Спидран'))
+}
+{
+  const html = await draw('/src/views/ChapterList.vue', { mode: 'play', storyId: story.id })
+  check('у главы тоже выбор', html.includes('Прохождение') && html.includes('Спидран'))
+}
+{
+  const html = await draw('/src/views/ChapterList.vue', { mode: 'play', storyId: story.id, speedrun: true })
+  check('но внутри идущего спидрана главу не переспрашивают', !html.includes('>Спидран<'))
 }
 
 // --- тропы на карте видны и в спидране ---------------------------------------
@@ -139,6 +148,21 @@ for (const [name, props] of screens) {
   app.config.warnHandler = () => {}
   const html = await renderToString(app)
   check('пока цель не выполнена, кнопки «Закончить» нет', !html.includes('Закончить'))
+}
+
+// --- полоса времени -----------------------------------------------------------
+// Показывает три вещи: где мы, докуда развёрнуто и куда можно тянуть. Ширины
+// считаются долями, поэтому их видно прямо в разметке.
+{
+  const html = await draw('/src/components/Timeline.vue', { value: 30, max: 120, buffered: 60 })
+  check('бегунок стоит на своей доле', html.includes('left:25%') || html.includes('left: 25%'), 'ждём 25%')
+  check('развёрнутая часть показана отдельно', html.includes('50%'), 'ждём 50%')
+
+  const all = await draw('/src/components/Timeline.vue', { value: 10, max: 100, buffered: -1 })
+  check('без ограничения развёрнутым считается всё', all.includes('100%'))
+
+  const off = await draw('/src/components/Timeline.vue', { value: 10, max: 100, disabled: true })
+  check('в спидране полоса только показывает', off.includes('off'))
 }
 
 await server.close()

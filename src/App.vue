@@ -10,7 +10,7 @@
     :mode="mode" :story-id="storyId"
     :run="chain?.kind === 'story' ? chain : null" :speedrun="speedrun" :sr-scope="srScope"
     :release-id="releaseId" :release="rel"
-    @back="leaveStory" @open="openChapter" @start="startStory" @runs="openRuns"
+    @back="leaveStory" @open="openChapter" @runs="openRuns"
     @version="pickVersion"
   />
   <ChapterMap
@@ -18,26 +18,9 @@
     :mode="mode" :chapter-id="chapterId"
     :run="chain" :speedrun="speedrun" :sr-scope="srScope" :in-story="chain?.kind === 'story'"
     :release="rel"
-    @back="leaveChapter" @play="play" @edit="editLevel" @start="startChapter"
+    @back="leaveChapter" @play="play" @edit="editLevel"
     @runs="openRuns"
   />
-  <!-- Выбор режима для отдельного уровня. Спрашиваем, только если спидран
-       не унаследован сверху: внутри спидрана главы или истории уровень уже
-       спидранится, а внутри обычного прохождения его можно взяться спидранить
-       отдельно — это самостоятельное состязание. -->
-  <div v-else-if="at === 'pick-level'" class="screen">
-    <header class="bar">
-      <button class="btn ghost small" @click="at = 'map'">← Карта</button>
-      <h2>{{ current?.name }}</h2>
-    </header>
-    <ModePick
-      title="Как проходим уровень?"
-      sr-note="на время, без откатов"
-      plain-note="спокойно, с перемоткой на паузе"
-      @pick="startLevel"
-    />
-  </div>
-
   <GameView
     v-else-if="at === 'game'"
     :key="levelId + ':' + attempt" :level="current"
@@ -85,8 +68,6 @@ import ChapterMap from './views/ChapterMap.vue'
 import GameView from './views/GameView.vue'
 import EditorView from './views/EditorView.vue'
 import RunsView from './views/RunsView.vue'
-import ModePick from './components/ModePick.vue'
-import { shouldAsk } from './core/modes.js'
 import {
   level as getLevel, chapter as getChapter,
   story as getStory, chaptersOf,
@@ -118,8 +99,6 @@ const chain = ref(null)
 // Спидран наследуется вниз, обычное прохождение — нет. Поэтому вопрос о режиме
 // задаётся ровно там, где спидран ещё не начат.
 const srScope = ref(null)
-// Выбрали ли спидран ещё в главном меню
-const entrySpeedrun = ref(false)
 const speedrun = computed(() => srScope.value !== null)
 // Счётчик заходов: пересоздаёт GameView при повторном входе на тот же уровень,
 // иначе Vue переиспользовал бы компонент и мир остался бы от прошлого захода.
@@ -192,22 +171,20 @@ function stopWatching() {
 
 function go(where) {
   mode.value = where === 'editor' ? 'edit' : 'play'
-  // Спидран, выбранный на входе, начинается на самом верху: открытая дальше
-  // история станет попыткой целиком, и переспрашивать её незачем.
-  entrySpeedrun.value = where === 'speedrun'
   srScope.value = null
   chain.value = null
   at.value = 'stories'
 }
-function openStory(id) {
+// Режим приходит вместе с выбором: игрок нажал «Спидран» на карточке истории,
+// а не «играть, а потом решим». Спидран истории накрывает её главы и уровни.
+function openStory(id, speedrun = false) {
   storyId.value = id
   chain.value = null      // при входе в историю режим спрашиваем заново
   srScope.value = null
   // По умолчанию предлагаем последний выпуск: играть свежее выпущенное —
   // разумное умолчание, а черновик автора можно выбрать явно.
   releaseId.value = mode.value === 'play' ? (latestRelease(id)?.id || null) : null
-  // Режим выбран на входе — история сразу становится попыткой.
-  if (entrySpeedrun.value) startStory(true)
+  if (speedrun) startStory(true)
   at.value = 'chapters'
 }
 
@@ -224,7 +201,7 @@ async function leaveStory() {
   srScope.value = null
   at.value = 'stories'
 }
-function openChapter(id) {
+function openChapter(id, speedrun = false) {
   chapterId.value = id
   // Внутри попытки истории цепочка продолжается — она общая на всю историю.
   // Если попытки нет, глава спросит режим сама и заведёт свою.
@@ -276,20 +253,14 @@ async function abandon() {
   })
 }
 
-function play(id) {
+// Режим уровня тоже приходит с выбором — из меню точки на карте. Отдельного
+// экрана с вопросом больше нет: решение и вход стали одним действием.
+function play(id, speedrun = false) {
   levelId.value = id
   current.value = lvlOf(id)
   attempt.value++
-  // Спрашивать ли — решает общее правило: спидран сверху наследуется,
-  // обычное прохождение нет.
-  at.value = shouldAsk('level', srScope.value) ? 'pick-level' : 'game'
-}
-
-// Игрок выбрал режим для отдельного уровня. Спидран уровня — тоже попытка,
-// но короткая: цепочки ей не нужно, запись уровня и есть вся попытка.
-function startLevel(sr) {
-  srScope.value = sr ? 'level' : null
-  attempt.value++
+  // Внутри идущего спидрана уровень его часть, и своей области не заводит.
+  if (!srScope.value) srScope.value = speedrun ? 'level' : null
   at.value = 'game'
 }
 function editLevel(id) { levelId.value = id; at.value = 'level' }

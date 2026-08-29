@@ -12,7 +12,7 @@
 
     <ul class="grid">
       <li v-for="s in list" :key="s.id" class="card">
-        <div class="cover" :style="coverStyle(s.cover)" @click="$emit('open', s.id)">
+        <div class="cover" :style="coverStyle(s.cover)" @click="$emit('open', s.id, false)">
           <span class="badge">{{ chapters(s.id).length }} глав · {{ levelCount(s.id) }} уровней</span>
           <span v-if="mode === 'play'" class="progress">{{ done(s.id) }} / {{ levelCount(s.id) }}</span>
         </div>
@@ -20,7 +20,15 @@
           <input v-if="mode === 'edit'" v-model="s.title" class="title-input" @change="persist" />
           <h3 v-else>{{ s.title }}</h3>
           <div class="row">
-            <button class="btn small primary" @click="$emit('open', s.id)">{{ mode === 'play' ? 'Играть' : 'Открыть' }}</button>
+            <!-- Режим выбирается здесь же, при входе: не «играть, а потом
+                 где-то внутри решить», а сразу — с чем заходим. Спидран
+                 истории накрывает её главы и уровни, переспрашивать их не
+                 придётся. -->
+            <template v-if="mode === 'play'">
+              <button class="btn small primary" @click="$emit('open', s.id, false)">Прохождение</button>
+              <button class="btn small sr" @click="$emit('open', s.id, true)">Спидран</button>
+            </template>
+            <button v-else class="btn small primary" @click="$emit('open', s.id)">Открыть</button>
             <template v-if="mode === 'edit'">
               <button class="btn small" @click="cover(s)">Обложка</button>
               <button class="btn small" @click="save(s)">В файл</button>
@@ -99,6 +107,7 @@ function factory() {
 
 <style scoped>
 .screen { position: absolute; inset: 0; overflow: auto; padding-bottom: 60px; }
+.sr { background: #8c5a2c; border-color: #a86c34; color: #fff2df; }
 .bar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 20px clamp(16px, 4vw, 44px); position: sticky; top: 0; z-index: 2;

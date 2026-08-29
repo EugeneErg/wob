@@ -67,15 +67,14 @@
     <div v-if="mode === 'replay' && !lost && !loading" class="deck">
       <div class="line">
         <button class="btn small icon" @click="togglePause">{{ paused ? '▶' : '❚❚' }}</button>
-        <!-- Полоса времени. Тёмная часть — то, что ещё не развёрнуто:
-             перемотать туда можно, но придётся подождать пересчёта. -->
-        <span class="track">
-          <span class="buffered" :style="{ width: Math.round((unpacked ?? 1) * 100) + '%' }" />
-          <input
-            class="scrub" type="range" min="0" :max="total || 1" :value="tick"
-            @input="onScrub(+$event.target.value)"
-          />
-        </span>
+        <!-- Полоса времени с бегунком: тянется в обе стороны, кадр меняется
+             прямо во время движения. Светлая часть — развёрнутая: досюда
+             прыжок мгновенный, дальше придётся подождать пересчёта. -->
+        <Timeline
+          class="tl-wide" :value="tick" :max="total || 1"
+          :buffered="Math.round((unpacked ?? 1) * (total || 1))"
+          @seek="onScrub"
+        />
         <span class="pos">{{ clock }} / {{ fmt(total) }}</span>
       </div>
 
@@ -129,6 +128,30 @@
           <span class="hint-rw">переиграть с этого места</span>
         </div>
 
+        <!-- То же самое на паузе в игре: можно отмотать и посмотреть, что
+             было. Пока смотришь — это ещё не откат: попытка стоит на месте.
+             Откат случится, только если продолжить именно с показанного места,
+             и об этом сказано прямо. В спидране полоса только показывает: там
+             откатов нет, а разглядывание задним числом дало бы преимущество
+             тому, кто играет подряд. -->
+        <div v-if="mode === 'play'" class="rew">
+          <Timeline
+            :value="previewTick ?? tick" :max="maxTick || 1"
+            :buffered="previewTick === null ? -1 : Math.round((unpacked ?? 1) * (maxTick || 1))"
+            :disabled="speedrun"
+            @seek="onPreview" @commit="onPreviewEnd"
+          />
+          <p v-if="speedrun" class="rew-note">
+            В спидране перемотки нет — попытка идёт подряд.
+          </p>
+          <p v-else-if="previewTick !== null" class="rew-note">
+            Смотрим {{ fmt(previewTick) }} из {{ clock }}.
+            <button class="link" @click="resumeHere">Продолжить отсюда</button>
+            <button class="link" @click="backToNow">Вернуться</button>
+          </p>
+          <p v-else class="rew-note">Потяните полосу, чтобы посмотреть, что было</p>
+        </div>
+
         <div class="row">
           <button class="btn primary" @click="togglePause">Продолжить</button>
           <button v-if="mode === 'play'" class="btn" @click="restart">Заново</button>
@@ -166,6 +189,7 @@
 <script setup>
 import { ref, shallowRef, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import WorldCanvas from '../components/WorldCanvas.vue'
+import Timeline from '../components/Timeline.vue'
 import { markDone } from '../core/library.js'
 import { saveRun, bestRun, formatTime, KIND } from '../core/replays.js'
 import { seedFor, checkRecord } from '../core/releases.js'
@@ -204,6 +228,12 @@ const total = ref(0)
 const seeking = ref(false)
 const progress = ref(1)
 const unpacked = ref(null)
+// Где стоит бегунок, когда игрок разглядывает прошлое. null — не разглядывает.
+const previewTick = ref(null)
+// Докуда вообще можно мотать в живой игре: до того места, где попытка сейчас.
+// Пока смотрим прошлое, tick показывает предпросмотр, поэтому предел
+// запоминается отдельно — иначе полоса схлопывалась бы вслед за бегунком.
+const maxTick = ref(0)
 // Скорость просмотра. Начальное значение приходит снаружи, дальше зритель
 // крутит сам: разбирать чужой прогон удобнее медленно, пересматривать — быстро.
 const rate = ref(props.speed)
@@ -270,6 +300,8 @@ function onStats(s) {
   seeking.value = !!s.seeking
   progress.value = s.progress ?? 1
   unpacked.value = s.unpacked ?? null
+  if (s.previewing) previewTick.value = s.tick
+  else maxTick.value = s.tick
   gap.value = s.ghostGap ?? null
 }
 
@@ -278,6 +310,29 @@ const fmt = (t) => formatTime(t || 0)
 // Перемотка полосой. На паузе остаёмся на паузе: зритель тянет ползунок,
 // чтобы рассмотреть момент, а не чтобы игра поехала дальше.
 function onScrub(t) { canvas.value?.seek(t) }
+
+// Тянем полосу на паузе в игре: показываем прошлый кадр, попытку не трогаем.
+function onPreview(t) {
+  if (props.speedrun || props.mode !== 'play') return
+  previewTick.value = t
+  canvas.value?.previewAt(t)
+}
+const onPreviewEnd = (t) => onPreview(t)
+
+// Продолжить с показанного места — вот теперь это откат, и он записан
+// отметкой в попытке. Всё, что было после, игрок переигрывает.
+function resumeHere() {
+  canvas.value?.endPreview(previewTick.value)
+  previewTick.value = null
+  collected.value = 0
+  reached.value = false
+  paused.value = false
+}
+// Вернуться туда, где и были: разглядывание следов не оставляет
+function backToNow() {
+  canvas.value?.endPreview(null)
+  previewTick.value = null
+}
 function jump(seconds) {
   const t = Math.max(0, tick.value + Math.round(seconds * 60))
   canvas.value?.seek(t)
@@ -336,7 +391,13 @@ function onReplayEnd() {
   won.value = true
 }
 
-function togglePause() { paused.value = !paused.value }
+function togglePause() {
+  // Сняли паузу, не решив ничего про показанное, — возвращаемся к попытке.
+  // Молча продолжать с прошлого места нельзя: это был бы откат, о котором
+  // игрок не просил.
+  if (paused.value && previewTick.value !== null) backToNow()
+  paused.value = !paused.value
+}
 
 // Снимок ровно того, что на экране, вместе с камерой. Ставим паузу: иначе
 // снимок окажется на кадр позже того, что человек хотел заснять.
@@ -380,6 +441,12 @@ function restart() {
 
 // Выход посреди уровня — тоже попытка. Записываем её, прежде чем уйти.
 async function leave() {
+  // Цель выполнена, а игрок уходит, не нажав «Закончить», — уровень всё равно
+  // пройден. Кнопка про то, играть ли дальше, а не про то, засчитывать ли:
+  // условие уже выполнено, и терять из-за этого прогресс было бы обидно и
+  // непонятно. Без этого попытка уходила недоигранной, следующий уровень не
+  // открывался и тропа к нему не рисовалась.
+  if (props.mode === 'play' && reached.value && !won.value) { await finishNow(); emit('back'); return }
   if (props.mode === 'play' && !saved.value && tick.value > 0) await store()
   emit('back')
 }
@@ -490,6 +557,14 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onHidden)
   color: var(--muted); cursor: pointer;
 }
 .sp.on { color: #ffd9a0; border-color: #8c5a2c; }
+.tl-wide { flex: 1; min-width: 120px; }
+.rew { margin: 0 0 14px; }
+.rew-note { margin: 4px 0 0; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.link {
+  font: inherit; font-family: var(--font-mono); font-size: 10.5px;
+  background: none; border: none; color: #ffd9a0; cursor: pointer;
+  padding: 0 0 0 10px; text-decoration: underline;
+}
 .track { position: relative; flex: 1; min-width: 120px; display: flex; align-items: center; }
 .buffered {
   position: absolute; left: 0; top: 50%; height: 4px; margin-top: -2px;

@@ -30,58 +30,6 @@
       </template>
     </header>
 
-    <!-- Спрашиваем один раз при входе в историю. Спидран отсюда накроет всё,
-         что внутри: главы и уровни в нём режим уже не спрашивают. Обычное
-         прохождение вниз не наследуется — внутри него можно взяться
-         спидранить отдельную главу или уровень. -->
-    <ModePick
-      v-if="mode === 'play' && ask"
-      title="Пройти историю целиком?"
-      sr-note="все главы подряд, время общее"
-      plain-note="сохраняется, главы по одной"
-      note="Можно и просто открыть главу — тогда она пройдётся отдельно, со своим временем."
-      @pick="choose"
-    />
-
-    <!-- Выпуски. Черновик правится сколько угодно и рекордов не имеет: пока
-         автор двигает камни, соревноваться не в чем. Выпуск — замороженный
-         снимок всей истории вместе с главами и уровнями; он больше не
-         меняется никогда, и правка после него создаёт следующий, а не
-         переписывает прошлый. Рекорды и записи привязаны к выпуску, поэтому
-         сырое в бой не попадает. -->
-    <section v-if="mode === 'edit' && relOpen" class="rel">
-      <div class="rel-head">
-        <h3>Выпуски истории</h3>
-        <button class="btn small primary" :disabled="!unreleased" @click="doPublish">
-          {{ unreleased ? 'Выпустить версию ' + (rels.length + 1) : 'Нечего выпускать' }}
-        </button>
-      </div>
-      <p v-if="unreleased" class="rel-note">
-        Черновик отличается от последнего выпуска — игроки его пока не видят.
-      </p>
-      <p v-else-if="rels.length" class="rel-note">
-        Черновик совпадает с версией {{ rels[0].version }}.
-      </p>
-      <p v-else class="rel-note">
-        Выпусков ещё нет. Пока история не выпущена, играется черновик, и рекорды
-        по ней сравнивать не с чем: уровни могут измениться в любой момент.
-      </p>
-
-      <ul v-if="rels.length" class="rel-list">
-        <li v-for="r in rels" :key="r.id">
-          <b>Версия {{ r.version }}</b>
-          <span class="when">{{ when(r.at) }}</span>
-          <span class="what">{{ r.chapters.length }} глав, {{ r.levels.length }} уровней</span>
-          <span class="hash">{{ r.hash }}</span>
-        </li>
-      </ul>
-    </section>
-
-    <p v-if="mode === 'play' && !releaseId && rels.length" class="draft-warn">
-      Играется черновик автора: он может измениться в любой день, и записи по
-      нему устареют. Для рекордов выберите выпущенную версию.
-    </p>
-
     <ul class="grid">
       <li v-for="(c, i) in list" :key="c.id" class="card" :class="{ locked: locked(c) }">
         <div class="cover" :style="coverStyle(c.image)" @click="open(c)">
@@ -93,9 +41,16 @@
           <input v-if="mode === 'edit'" v-model="c.title" class="title-input" @change="persist" />
           <h3 v-else>{{ c.title }}</h3>
           <div class="row">
-            <button class="btn small primary" :disabled="locked(c)" @click="open(c)">
-              {{ mode === 'play' ? 'На карту' : 'Открыть' }}
-            </button>
+            <template v-if="mode === 'play'">
+              <button class="btn small primary" :disabled="locked(c)" @click="open(c, false)">
+                Прохождение
+              </button>
+              <!-- Внутри уже идущего спидрана выбирать нечего: он выбран выше -->
+              <button v-if="!speedrun" class="btn small sr" :disabled="locked(c)" @click="open(c, true)">
+                Спидран
+              </button>
+            </template>
+            <button v-else class="btn small primary" @click="open(c)">Открыть</button>
             <template v-if="mode === 'edit'">
               <button class="btn small" @click="pic(c)">Картинка</button>
               <button class="btn small" @click="save(c)">В файл</button>
@@ -111,8 +66,6 @@
 <script setup>
 import { ref, computed } from 'vue'
 import * as lib from '../core/library.js'
-import ModePick from '../components/ModePick.vue'
-import { shouldAsk } from '../core/modes.js'
 import { doneByChapter, openChapters } from '../core/chain.js'
 import { formatTime } from '../core/replays.js'
 import { publish, releases, drifted } from '../core/releases.js'
@@ -133,7 +86,7 @@ const props = defineProps({
   // что автор правит прямо сейчас.
   release: { type: Object, default: null },
 })
-const emit = defineEmits(['back', 'open', 'start', 'runs', 'version'])
+const emit = defineEmits(['back', 'open', 'runs', 'version'])
 
 const story = computed(() => props.release?.story || lib.story(props.storyId))
 const chaptersNow = () => props.release?.chapters || lib.chaptersOf(props.storyId)
@@ -187,11 +140,9 @@ function doPublish() {
 }
 const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-const asked = ref(false)
-const ask = computed(() => !asked.value && shouldAsk('story', props.srScope))
-const choose = (sr) => { asked.value = true; emit('start', sr) }
-
-function open(c) { if (!locked(c)) emit('open', c.id) }
+// Второй довод — просят ли спидран. Он едет вместе с выбором главы, чтобы
+// решение и вход были одним действием, а не двумя экранами.
+function open(c, speedrun = false) { if (!locked(c)) emit('open', c.id, speedrun) }
 function add() { const c = lib.createChapter(props.storyId); refresh(); emit('open', c.id) }
 function drop(c) {
   if (confirm(`Удалить главу «${c.title}» вместе с её уровнями?`)) { lib.removeChapter(c.id); refresh() }
@@ -214,6 +165,7 @@ const save = (c) => downloadJSON(lib.exportChapter(c.id), fileName('chapter', c.
   border: 1px solid #8c5a2c; background: rgba(140, 90, 44, 0.14); color: #ffd9a0;
   border-radius: 10px; font-size: 12.5px; line-height: 1.45;
 }
+.sr { background: #8c5a2c; border-color: #a86c34; color: #fff2df; }
 .rel {
   margin: 0 clamp(16px, 4vw, 44px) 18px; padding: 16px 18px;
   border: 1px solid var(--line); border-radius: 14px; background: var(--panel);

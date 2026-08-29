@@ -6,18 +6,8 @@
       <p class="eyebrow">Верле-физика · SVG · Vue</p>
       <h1 class="title">GOO</h1>
       <p class="lede">Истории из глав, главы из уровней.<br />Шары в фоне тоже можно таскать.</p>
-      <!-- Режим выбирается на входе, а не где-то внутри: с ним и заходим.
-           Спидран отсюда накрывает всё, что откроем дальше, — историю, её
-           главы и уровни; они переспрашивать не станут. Прохождение вниз не
-           наследуется: внутри него можно взяться спидранить отдельную главу
-           или уровень. -->
       <nav class="actions">
-        <button class="btn primary" @click="$emit('go', 'play')">
-          Прохождение<i>спокойно, с сохранением</i>
-        </button>
-        <button class="btn primary sr" @click="$emit('go', 'speedrun')">
-          Спидран<i>на время, подряд, без сохранений</i>
-        </button>
+        <button class="btn primary" @click="$emit('go', 'play')">Играть</button>
         <button class="btn" @click="$emit('go', 'editor')">Редактор историй</button>
       </nav>
 
@@ -49,11 +39,6 @@ const setFps = (v) => { fpsCap.value = v; setSetting('fpsCap', v) }
 
 <style scoped>
 .menu { position: absolute; inset: 0; overflow: hidden; }
-.actions .btn i {
-  display: block; font-style: normal; font-family: var(--font-mono);
-  font-size: 10px; opacity: 0.75; margin-top: 3px;
-}
-.actions .sr { background: #8c5a2c; border-color: #a86c34; }
 .fps { display: block; margin-top: 6px; font-size: 12px; color: var(--muted); }
 .fps span { display: block; margin-bottom: 5px; }
 .fps select {
