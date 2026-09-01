@@ -11,10 +11,12 @@ globalThis.localStorage = {
 
 const { check } = await import('./assert.mjs')
 const lib = await import('../src/core/library.js')
+const { seed } = await import('./seed.mjs')
+seed(lib)
 const { ChainRun, categoryOf, openNodes, needsRouting } = await import('../src/core/chain.js')
 const { saveRun, runsFor, bestRun, formatTime, KIND } = await import('../src/core/replays.js')
 
-lib.resetLibrary()
+seed(lib)
 const story = lib.stories()[0]
 const chapters = lib.chaptersOf(story.id)
 const ch = chapters[0]

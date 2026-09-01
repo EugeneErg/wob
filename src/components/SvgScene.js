@@ -1,7 +1,7 @@
 import { h } from 'vue'
 
-// Сущности отдают не Vue-компоненты, а описание фигур — их можно сериализовать
-// и когда-нибудь получать с сервера.
+// Entities hand back a description of shapes rather than Vue components, so
+// they can be serialised and one day fetched from the server.
 
 const ptsStr = (pts) => pts.map((p) => `${p[0]},${p[1]}`).join(' ')
 

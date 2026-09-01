@@ -3,10 +3,10 @@
     <h3>{{ title }}</h3>
     <div class="row">
       <button class="btn primary" @click="$emit('pick', true)">
-        Спидран<i>{{ srNote }}</i>
+        Speedrun<i>{{ srNote }}</i>
       </button>
       <button class="btn" @click="$emit('pick', false)">
-        Прохождение<i>{{ plainNote }}</i>
+        Play through<i>{{ plainNote }}</i>
       </button>
     </div>
     <p v-if="note" class="note-pick">{{ note }}</p>
@@ -14,15 +14,16 @@
 </template>
 
 <script setup>
-// Выбор режима спрашивают на каждом уровне вложенности, но только когда есть
-// что выбирать. Спидран наследуется вниз: начал спидран истории — главы и
-// уровни внутри уже спидранятся, переспрашивать нечего. Обычное прохождение
-// вниз не наследуется: внутри него можно взяться спидранить отдельную главу
-// или отдельный уровень, и это законное самостоятельное состязание.
+// The mode is asked about at every depth, but only where there is something to
+// choose. A speedrun is inherited downwards: once a story speedrun has begun,
+// the chapters and levels inside are already being run and there is nothing to
+// ask. Ordinary play is not inherited downwards — inside it you may decide to
+// speedrun one chapter or one level, and that is a legitimate contest of its
+// own.
 defineProps({
   title: { type: String, required: true },
-  srNote: { type: String, default: 'подряд, без сохранений и откатов' },
-  plainNote: { type: String, default: 'сохраняется, можно вернуться позже' },
+  srNote: { type: String, default: 'in one go, no saves and no rewinds' },
+  plainNote: { type: String, default: 'saved as you go, come back whenever' },
   note: { type: String, default: '' },
 })
 defineEmits(['pick'])

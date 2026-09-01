@@ -1,17 +1,32 @@
-  ок    MainMenu рисуется без ошибок — 2177 символов
-  ок    StoryPicker (игра) рисуется без ошибок — 1015 символов
-  ок    StoryPicker (редактор) рисуется без ошибок — 1539 символов
-  ок    ChapterList (игра) рисуется без ошибок — 1813 символов
+  ок    MainMenu рисуется без ошибок — 4090 символов
+  ок    SettingsView рисуется без ошибок — 906 символов
+  ок    AwardsView рисуется без ошибок — 234 символов
+  ок    StoryPicker (игра) рисуется без ошибок — 1258 символов
+  ок    StoryPicker (редактор) рисуется без ошибок — 1790 символов
+  ок    ChapterList (игра) рисуется без ошибок — 1870 символов
   ок    ChapterList (редактор) рисуется без ошибок — 1709 символов
-  ок    ChapterMap (игра) рисуется без ошибок — 1591 символов
-  ок    ChapterMap (редактор) рисуется без ошибок — 1729 символов
-  ок    RunsView рисуется без ошибок — 248 символов
-  ок    GameView рисуется без ошибок — 2959 символов
-  ок    GameView рисуется без ошибок — 2959 символов
-  ок    в главном меню просто «Играть»
-  ок    у истории выбор: прохождение или спидран
-  ок    у главы тоже выбор
-  ок    но внутри идущего спидрана главу не переспрашивают
+  ок    ChapterMap (игра) рисуется без ошибок — 1624 символов
+  ок    ChapterMap (редактор) рисуется без ошибок — 1737 символов
+  ок    RunsView рисуется без ошибок — 682 символов
+  ок    RunsView рисуется без ошибок — 682 символов
+  ок    GameView рисуется без ошибок — 3137 символов
+  ок    GameView рисуется без ошибок — 3137 символов
+  ок    the menu offers all three ways in
+  ок    nothing to continue on a first visit
+  ок    signing in is offered on the menu itself
+  ок    the sign-in control looks like the other cards
+  ок    settings is offered as a place to go
+  ок    the frame cap is not on the front page
+  ок    runs screen offers both lists
+  ок    a released version still offers the board
+  ок    achievements screen has a heading and a way back
+  ок    and says it is working rather than showing nothing
+  ок    settings holds the frame rate
+  ок    settings does not own signing in
+  ок    a story offers both ways of playing
+  ок    coming in through Speedrun leads with Speedrun
+  ок    a chapter offers the choice too
+  ок    but inside a running speedrun the chapter is not asked again
   ок    в спидране тропа к следующему уровню видна — 1 троп при пройденном первом уровне
   ок    а пока ничего не пройдено — троп нет
   ок    в редакторе видны все тропы сразу — 1

@@ -14,6 +14,8 @@ globalThis.localStorage = {
 
 const { check } = await import('./assert.mjs')
 const lib = await import('../src/core/library.js')
+const { seed } = await import('./seed.mjs')
+seed(lib)
 const {
   publish, releases, latestRelease, drifted, release, levelFrom, chapterFrom,
   storyHash, levelHash, checkRecord, seedFor,
@@ -21,7 +23,7 @@ const {
 const { saveRun, bestRun, KIND } = await import('../src/core/replays.js')
 const { contentFor } = await import('../src/core/content.js')
 
-lib.resetLibrary()
+seed(lib)
 const st = lib.stories()[0]
 const ch = lib.chaptersOf(st.id)[0]
 const lvlId = ch.nodes[0].levelId

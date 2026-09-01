@@ -10,13 +10,15 @@ globalThis.localStorage = {
 
 const { check } = await import('./assert.mjs')
 const lib = await import('../src/core/library.js')
+const { seed } = await import('./seed.mjs')
+seed(lib)
 const {
   ChainRun, doneByChapter, openChapters, entryChapters, finalChapters,
   storyCategoryOf, storyPercent, openNodes, categoryOf,
 } = await import('../src/core/chain.js')
 const { saveRun, runsFor, bestRun, formatTime, KIND } = await import('../src/core/replays.js')
 
-lib.resetLibrary()
+seed(lib)
 const st = lib.stories()[0]
 const chapters = lib.chaptersOf(st.id)
 console.log(`история «${st.title}»: глав ${chapters.length}`)
@@ -90,7 +92,7 @@ check('её сегменты помнят главу', qRec.segments.every((g) =
 // Случай из жизни: во встроенной библиотеке привязок next нет вовсе, и правило
 // «конец истории — глава, из которой никуда не ведёт» объявляло концом каждую.
 // Игрок проходил первую главу и получал зачёт за всю историю.
-lib.resetLibrary()
+seed(lib)
 const st2 = lib.stories()[0]
 const chs2 = lib.chaptersOf(st2.id)
 check('во встроенной библиотеке привязок нет',

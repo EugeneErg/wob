@@ -1,31 +1,31 @@
 <template>
   <div class="screen">
     <header class="bar">
-      <button class="btn ghost small" @click="$emit('back')">← Истории</button>
+      <button class="btn ghost small" @click="$emit('back')">← Stories</button>
       <h2>{{ story?.title }}</h2>
       <template v-if="mode === 'edit'">
-        <button class="btn small" @click="hotOpen = !hotOpen">Горячие ассеты</button>
+        <button class="btn small" @click="hotOpen = !hotOpen">Pinned assets</button>
         <button class="btn small" @click="relOpen = !relOpen">
-          Выпуски<i v-if="unreleased" class="dot" />
+          Releases<i v-if="unreleased" class="dot" />
         </button>
-        <button class="btn small primary" @click="add">Новая глава</button>
+        <button class="btn small primary" @click="add">New chapter</button>
       </template>
       <template v-else>
         <span v-if="run" class="igt" :class="{ sr: speedrun }">
-          {{ igt }}<i>{{ speedrun ? 'спидран истории' : 'прохождение' }}</i>
+          {{ igt }}<i>{{ speedrun ? 'story speedrun' : 'playthrough' }}</i>
         </span>
-        <!-- Какую версию играем. Выпуск заморожен: его уровни больше не
-             изменятся, поэтому и рекорды по нему сравнимы. Черновик автора
-             меняется в любой момент — играть его можно, но соревноваться
-             в нём не с чем, и это сказано прямо. -->
+        <!-- Which version is being played. A release is frozen: its levels
+             will not change again, which is what makes records on it
+             comparable. The author's draft changes at any moment — playable,
+             but there is nothing to compete against, and the screen says so. -->
         <label v-if="rels.length" class="ver">
           <select :value="releaseId || ''" @change="$emit('version', $event.target.value || null)">
-            <option v-for="r in rels" :key="r.id" :value="r.id">Версия {{ r.version }}</option>
-            <option value="">Черновик автора</option>
+            <option v-for="r in rels" :key="r.id" :value="r.id">Version {{ r.version }}</option>
+            <option value="">Author's draft</option>
           </select>
         </label>
         <button class="btn small" @click="$emit('runs', { kind: 'story', targetId: storyId })">
-          Попытки истории
+          Story runs
         </button>
       </template>
     </header>
@@ -33,8 +33,8 @@
     <ul class="grid">
       <li v-for="(c, i) in list" :key="c.id" class="card" :class="{ locked: locked(c) }">
         <div class="cover" :style="coverStyle(c.image)" @click="open(c)">
-          <span class="badge">Глава {{ i + 1 }} · {{ c.nodes.length }} уровней</span>
-          <span v-if="locked(c)" class="lock">Закрыто</span>
+          <span class="badge">Chapter {{ i + 1 }} · {{ c.nodes.length }} levels</span>
+          <span v-if="locked(c)" class="lock">Locked</span>
           <span v-else-if="mode === 'play'" class="progress">{{ passed(c) }} / {{ c.nodes.length }}</span>
         </div>
         <div class="meta">
@@ -43,18 +43,18 @@
           <div class="row">
             <template v-if="mode === 'play'">
               <button class="btn small primary" :disabled="locked(c)" @click="open(c, false)">
-                Прохождение
+                Play through
               </button>
-              <!-- Внутри уже идущего спидрана выбирать нечего: он выбран выше -->
+              <!-- Inside a running speedrun there is nothing to choose: it was chosen above -->
               <button v-if="!speedrun" class="btn small sr" :disabled="locked(c)" @click="open(c, true)">
-                Спидран
+                Speedrun
               </button>
             </template>
-            <button v-else class="btn small primary" @click="open(c)">Открыть</button>
+            <button v-else class="btn small primary" @click="open(c)">Open</button>
             <template v-if="mode === 'edit'">
-              <button class="btn small" @click="pic(c)">Картинка</button>
-              <button class="btn small" @click="save(c)">В файл</button>
-              <button class="btn small danger" @click="drop(c)">Удалить</button>
+              <button class="btn small" @click="pic(c)">Image</button>
+              <button class="btn small" @click="save(c)">Save to file</button>
+              <button class="btn small danger" @click="drop(c)">Delete</button>
             </template>
           </div>
         </div>
@@ -66,6 +66,8 @@
 <script setup>
 import { ref, computed } from 'vue'
 import * as lib from '../core/library.js'
+import { createChapter, deleteChapter } from '../core/authoring.js'
+import { session } from '../core/session.js'
 import { doneByChapter, openChapters } from '../core/chain.js'
 import { formatTime } from '../core/replays.js'
 import { publish, releases, drifted } from '../core/releases.js'
@@ -74,16 +76,16 @@ import { downloadJSON, pickImage, fileName, coverStyle } from '../core/fileio.js
 const props = defineProps({
   mode: { type: String, default: 'play' },
   storyId: String,
-  // Идущая попытка истории (ChainRun), если она есть
+  // The story attempt in progress (ChainRun), if there is one
   run: { type: Object, default: null },
   speedrun: { type: Boolean, default: false },
-  // где начат спидран: null | 'story' | 'chapter' | 'level'
+  // where the speedrun began: null | 'story' | 'chapter' | 'level'
   srScope: { type: String, default: null },
-  // какой выпуск играем; null — черновик автора
+  // which release is being played; null means the author's draft
   releaseId: { type: String, default: null },
-  // Замороженный снимок выпуска. Когда он есть, главы и уровни берутся из
-  // него: играя выпуск, игрок обязан видеть то, что было выпущено, а не то,
-  // что автор правит прямо сейчас.
+  // The frozen snapshot of a release. When present, chapters and levels come
+  // from it: playing a release must show what was released, not what the author
+  // happens to be editing right now.
   release: { type: Object, default: null },
 })
 const emit = defineEmits(['back', 'open', 'runs', 'version'])
@@ -99,9 +101,9 @@ const hotOpen = ref(false)
 const isHot = (id) => lib.isHot('story', props.storyId, id)
 const toggle = (id) => { lib.toggleHot('story', props.storyId, id); refresh() }
 
-// Что открыто. В попытке истории — только то, куда ведёт пройденный выход
-// внутри этой же попытки: прошлые заслуги главу не открывают, иначе историю
-// можно было бы начать с середины.
+// What is unlocked. Within a story attempt, only what a finished exit inside
+// THAT attempt leads to: past achievements do not open a chapter, or the story
+// could be started from the middle.
 const doneMap = computed(() => (props.run ? doneByChapter(props.run) : null))
 const openSet = computed(() =>
   (doneMap.value && story.value
@@ -114,7 +116,8 @@ const locked = (c) => {
   return !lib.chapterOpen(props.storyId, c.id)
 }
 
-// Сколько уровней главы пройдено: в попытке — её собственный счёт, иначе общий
+// How many of the chapter's levels are done: within an attempt its own count,
+// otherwise the overall one
 const passed = (c) => {
   const d = doneMap.value?.get(c.id)
   return d ? c.nodes.filter((n) => d.has(n.levelId)).length
@@ -123,13 +126,13 @@ const passed = (c) => {
 
 const igt = computed(() => (props.run ? formatTime(props.run.ticks) : '0.000'))
 
-// Спросили один раз — больше не пристаём: отказ от спидрана не должен
-// возвращать тот же вопрос при каждом взгляде на экран. Само же правило,
-// спрашивать ли вообще, живёт в modes.js и проверено тестом.
-// Выпуски
+// Asked once, never nagged again: declining a speedrun must not bring the same
+// question back every time the screen is looked at. The rule about whether to
+// ask at all lives in modes.js and has a test.
+// Releases
 const relOpen = ref(false)
-// Выпуски перечитываются по счётчику: публикация меняет localStorage, а Vue
-// об этом узнать не может — приходится дёргать счётчик руками.
+// Releases are re-read via a counter: publishing writes to localStorage, which
+// Vue cannot observe, so the counter has to be nudged by hand.
 const relTick = ref(0)
 const rels = computed(() => (relTick.value, releases(props.storyId)))
 const unreleased = computed(() => (relTick.value, props.storyId ? drifted(props.storyId) : false))
@@ -140,12 +143,27 @@ function doPublish() {
 }
 const when = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
-// Второй довод — просят ли спидран. Он едет вместе с выбором главы, чтобы
-// решение и вход были одним действием, а не двумя экранами.
+// The second argument says whether a speedrun was asked for. It travels with
+// the choice of chapter so that deciding and entering are one action rather
+// than two screens.
 function open(c, speedrun = false) { if (!locked(c)) emit('open', c.id, speedrun) }
-function add() { const c = lib.createChapter(props.storyId); refresh(); emit('open', c.id) }
+function add() {
+  const c = lib.createChapter(props.storyId)
+  refresh()
+
+  // Its own write, the moment it exists.
+  if (session.status === 'signed-in') createChapter(props.storyId, c)
+
+  emit('open', c.id)
+}
 function drop(c) {
-  if (confirm(`Удалить главу «${c.title}» вместе с её уровнями?`)) { lib.removeChapter(c.id); refresh() }
+  if (!confirm(`Delete "${c.title}" and its levels?`)) return
+
+  lib.removeChapter(c.id)
+
+  if (session.status === 'signed-in') deleteChapter(props.storyId, c.id)
+
+  refresh()
 }
 async function pic(c) {
   const url = await pickImage().catch(() => null)

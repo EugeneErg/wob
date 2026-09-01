@@ -13,9 +13,11 @@ globalThis.localStorage = {
 
 const { check } = await import('./assert.mjs')
 const lib = await import('../src/core/library.js')
+const { seed } = await import('./seed.mjs')
+seed(lib)
 const { deadEnds, exitNodes, needsRouting, isAnyPercent, categoryOf } = await import('../src/core/chain.js')
 
-lib.resetLibrary()
+seed(lib)
 
 // Две главы: из первой выход во вторую
 const { story } = lib.createStory('Проверка')

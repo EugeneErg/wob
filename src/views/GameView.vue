@@ -1,7 +1,7 @@
 <template>
   <div class="game">
     <p v-if="lost" class="stale-bar">
-      Версия, на которой снята запись, недоступна — показать повтор не на чем
+      The version this run was recorded on is unavailable — there is nothing to replay it against
     </p>
 
     <WorldCanvas
@@ -22,54 +22,54 @@
     />
 
     <div class="hud">
-      <button class="btn ghost small" @click="leave">← Уровни</button>
+      <button class="btn ghost small" @click="leave">← Levels</button>
 
-      <!-- Цель выполнена, но решает игрок: пока не нажал, можно играть дальше
-           и загонять шары сверх нормы. -->
+      <!-- The goal is met, but the player decides: until this is pressed you can
+           carry on and send more balls than required. -->
       <button v-if="reached && !won && mode === 'play'" class="btn small primary end" @click="finishNow">
-        Закончить<i>{{ clock }}</i>
+        Finish<i>{{ clock }}</i>
       </button>
 
       <div class="counter" :class="{ done: collected >= playLevel.goal }">
         <span class="num">{{ collected }}</span>
         <span class="of">/ {{ playLevel.goal }}</span>
-        <span class="cap">в трубе</span>
+        <span class="cap">in the pipe</span>
       </div>
 
-      <!-- Время попытки идёт тиками, а не секундомером: у игрока на 30 кадрах
-           и на 144 одно и то же прохождение даст одно и то же число. -->
+      <!-- The attempt is timed in ticks rather than by a stopwatch: the same
+           playthrough gives the same number at 30 frames and at 144. -->
       <div class="timer" :class="{ run: mode === 'replay' }">{{ clock }}</div>
 
-      <!-- Отставание от призрака. Считается на общих отметках (столько-то
-           шаров в трубе), а не по номеру тика: тик сам по себе ничего не
-           говорит, если игроки в разных местах уровня. -->
+      <!-- The gap to the ghost. Measured at shared marks (this many balls in
+           the pipe) rather than by tick number: a tick on its own says nothing
+           when the two players are in different parts of the level. -->
       <div v-if="gap !== null" class="gap" :class="{ ahead: gap < 0 }">
         {{ gap < 0 ? '−' : '+' }}{{ fmt(Math.abs(gap)) }}
-        <i>{{ gap < 0 ? 'впереди' : 'позади' }}</i>
+        <i>{{ gap < 0 ? 'ahead' : 'behind' }}</i>
       </div>
 
-      <!-- Пауза на телефоне: там нет Esc, и жать её надо большим пальцем -->
-      <button class="btn small icon" :aria-label="paused ? 'Продолжить' : 'Пауза'" @click="togglePause">
+      <!-- Pause on a phone: there is no Esc there, and a thumb has to reach it -->
+      <button class="btn small icon" :aria-label="paused ? 'Resume' : 'Pause'" @click="togglePause">
         {{ paused ? '▶' : '❚❚' }}
       </button>
-      <button v-if="mode === 'play'" class="btn small" @click="restart">Заново</button>
-      <!-- Отладка: снимок экрана и выгрузка состояния. Нужны, чтобы об ошибке
-           можно было говорить фактами — что было видно, на каком тике, с каким
-           сидом — а не пересказом. -->
-      <button class="btn small icon" title="Снимок экрана (F9)" @click="shot">◉</button>
-      <button class="btn small icon" title="Выгрузить состояние (F10)" @click="dump">⤓</button>
+      <button v-if="mode === 'play'" class="btn small" @click="restart">Restart</button>
+      <!-- Debugging: a screenshot and a state dump. They exist so a bug can be
+           discussed in facts — what was on screen, at which tick, with which
+           seed — rather than in retellings. -->
+      <button class="btn small icon" title="Screenshot (F9)" @click="shot">◉</button>
+      <button class="btn small icon" title="Dump state (F10)" @click="dump">⤓</button>
     </div>
 
-    <!-- Управление просмотром. Вперёд перемотка бесплатна — это обычное
-         продолжение прогона. Назад мир считается заново с начала, поэтому
-         рядом показано, сколько тиков придётся пересчитать: на уровне с водой
-         это заметное ожидание, и лучше сказать заранее, чем подвесить экран. -->
+    <!-- Playback controls. Seeking forward is free — it is just the run
+         carrying on. Seeking back recomputes the world from the beginning, so
+         the number of ticks to redo is shown: on a level with water that is a
+         noticeable wait, and saying so beats freezing the screen. -->
     <div v-if="mode === 'replay' && !lost && !loading" class="deck">
       <div class="line">
         <button class="btn small icon" @click="togglePause">{{ paused ? '▶' : '❚❚' }}</button>
-        <!-- Полоса времени с бегунком: тянется в обе стороны, кадр меняется
-             прямо во время движения. Светлая часть — развёрнутая: досюда
-             прыжок мгновенный, дальше придётся подождать пересчёта. -->
+        <!-- The timeline: drags both ways, and the frame changes while you
+             move. The lighter part is unrolled — jumping there is instant,
+             beyond it there is a recompute to wait for. -->
         <Timeline
           class="tl-wide" :value="tick" :max="total || 1"
           :buffered="Math.round((unpacked ?? 1) * (total || 1))"
@@ -79,10 +79,10 @@
       </div>
 
       <div class="line">
-        <button class="btn small" @click="jump(-5)">◀◀ 5 с</button>
-        <button class="btn small" :disabled="!paused" @click="frameStep(-1)">◀ кадр</button>
-        <button class="btn small" :disabled="!paused" @click="frameStep(1)">кадр ▶</button>
-        <button class="btn small" @click="jump(5)">5 с ▶▶</button>
+        <button class="btn small" @click="jump(-5)">◀◀ 5s</button>
+        <button class="btn small" :disabled="!paused" @click="frameStep(-1)">◀ frame</button>
+        <button class="btn small" :disabled="!paused" @click="frameStep(1)">frame ▶</button>
+        <button class="btn small" @click="jump(5)">5s ▶▶</button>
         <span class="speeds">
           <button
             v-for="s in [0.25, 0.5, 1, 2, 4]" :key="s"
@@ -92,48 +92,48 @@
       </div>
 
       <p v-if="unpacked !== null && unpacked < 1" class="unpack">
-        разворачиваем запись: {{ Math.round(unpacked * 100) }}% — смотреть можно уже сейчас,
-        перематывать в пределах развёрнутого
+        unrolling the recording: {{ Math.round(unpacked * 100) }}% — you can watch already,
+        and seek within the part that is done
       </p>
 
       <div v-if="seeking" class="seek">
         <div class="fill" :style="{ width: Math.round(progress * 100) + '%' }" />
-        <span>пересчёт: {{ Math.round(progress * 100) }}%</span>
+        <span>recomputing: {{ Math.round(progress * 100) }}%</span>
       </div>
     </div>
 
     <div class="fps" :class="{ low: fps > 0 && fps < 50 }">
-      {{ fps }} FPS<span class="sub">· тик {{ tick }}</span>
+      {{ fps }} FPS<span class="sub">· tick {{ tick }}</span>
     </div>
 
     <p v-if="outdated" class="stale-bar">{{ outdated }}</p>
 
     <p v-if="missing.length" class="warn">
-      Уровень использует сущности, которых нет в сборке: {{ missing.join(', ') }}
+      This level uses entities that are not in this build: {{ missing.join(', ') }}
     </p>
 
-    <!-- Пауза. В спидране она останавливает и часы: время считается тиками,
-         а на паузе тиков нет, поэтому «постоять подумать» бесплатно не выйдет —
-         запись просто не растёт, и продолжается с того же места. -->
+    <!-- Pause. In a speedrun it stops the clock too: time is counted in ticks
+         and a paused game produces none, so standing and thinking is free —
+         the recording simply does not grow and resumes from the same place. -->
     <transition name="pop">
       <div v-if="paused" class="panel">
-        <p class="eyebrow">Пауза</p>
+        <p class="eyebrow">Paused</p>
         <h2>{{ level.name }}</h2>
-        <!-- Перемотка живёт только в обычном прохождении. В спидране её нет:
-             откатиться и переиграть неудачный кусок — это не то же состязание,
-             что пройти подряд, и мерить их одной таблицей нельзя. -->
+        <!-- Rewinding exists only in ordinary play. A speedrun has none:
+             rolling back and replaying a bad stretch is not the same contest as
+             going through in one attempt, and one table cannot measure both. -->
         <div v-if="canRewind" class="rewind">
-          <button class="btn small" @click="rewind(1)">◀ 1 с</button>
-          <button class="btn small" @click="rewind(5)">◀ 5 с</button>
-          <span class="hint-rw">переиграть с этого места</span>
+          <button class="btn small" @click="rewind(1)">◀ 1s</button>
+          <button class="btn small" @click="rewind(5)">◀ 5s</button>
+          <span class="hint-rw">replay from here</span>
         </div>
 
-        <!-- То же самое на паузе в игре: можно отмотать и посмотреть, что
-             было. Пока смотришь — это ещё не откат: попытка стоит на месте.
-             Откат случится, только если продолжить именно с показанного места,
-             и об этом сказано прямо. В спидране полоса только показывает: там
-             откатов нет, а разглядывание задним числом дало бы преимущество
-             тому, кто играет подряд. -->
+        <!-- The same while paused in game: you can wind back and look at what
+             happened. Looking is not yet a rewind — the attempt stands still.
+             The rewind happens only if you resume from the place being shown,
+             and the screen says so. In a speedrun the bar only shows: there are
+             no rewinds there, and studying the past after the fact would
+             advantage whoever is playing straight through. -->
         <div v-if="mode === 'play'" class="rew">
           <Timeline
             :value="previewTick ?? tick" :max="maxTick || 1"
@@ -142,45 +142,52 @@
             @seek="onPreview" @commit="onPreviewEnd"
           />
           <p v-if="speedrun" class="rew-note">
-            В спидране перемотки нет — попытка идёт подряд.
+            No rewinding in a speedrun — the attempt runs straight through.
           </p>
           <p v-else-if="previewTick !== null" class="rew-note">
-            Смотрим {{ fmt(previewTick) }} из {{ clock }}.
-            <button class="link" @click="resumeHere">Продолжить отсюда</button>
-            <button class="link" @click="backToNow">Вернуться</button>
+            Looking at {{ fmt(previewTick) }} of {{ clock }}.
+            <button class="link" @click="resumeHere">Resume from here</button>
+            <button class="link" @click="backToNow">Go back</button>
           </p>
-          <p v-else class="rew-note">Потяните полосу, чтобы посмотреть, что было</p>
+          <p v-else class="rew-note">Drag the bar to look at what happened</p>
         </div>
 
         <div class="row">
-          <button class="btn primary" @click="togglePause">Продолжить</button>
-          <button v-if="mode === 'play'" class="btn" @click="restart">Заново</button>
-          <button class="btn" @click="leave">Выйти</button>
+          <button class="btn primary" @click="togglePause">Resume</button>
+          <button v-if="mode === 'play'" class="btn" @click="restart">Restart</button>
+          <button class="btn" @click="leave">Leave</button>
         </div>
-        <!-- Частота кадров: спидранеры обычно хотят её задать явно, а не
-             отдавать на волю браузера. На результат она не влияет — тик всегда
-             один и тот же, — но влияет на плавность. -->
+        <!-- Frame rate: speedrunners usually want to set it explicitly rather
+             than leave it to the browser. It does not affect the result — the
+             tick is always the same — but it does affect smoothness. -->
         <label class="fps-pick">
-          <span>Кадров в секунду</span>
+          <span>Frames per second</span>
           <select :value="fpsCap" @change="setFps(+$event.target.value)">
             <option v-for="f in FPS_OPTIONS" :key="f" :value="f">{{ fpsLabel(f) }}</option>
           </select>
         </label>
 
-        <p class="note">Esc — пауза и обратно · симуляция всегда 60 тиков в секунду</p>
+        <p class="note">Esc pauses and resumes · the simulation is always 60 ticks per second</p>
       </div>
     </transition>
 
     <transition name="pop">
       <div v-if="won && !paused" class="panel">
-        <p class="eyebrow">{{ mode === 'replay' ? 'Повтор досмотрен' : 'Уровень пройден' }}</p>
+        <p class="eyebrow">{{ mode === 'replay' ? 'Replay finished' : 'Level complete' }}</p>
         <h2>{{ playLevel.name }}</h2>
         <p v-if="outdated" class="stale">{{ outdated }}</p>
-        <p class="result">{{ clock }}<span v-if="best" class="best">лучшее: {{ best }}</span></p>
+        <p class="result">{{ clock }}<span v-if="best" class="best">best: {{ best }}</span></p>
         <div class="row">
-          <button class="btn primary" @click="leave">На карту</button>
-          <button class="btn" @click="restart">Ещё раз</button>
+          <button class="btn primary" @click="leave">To the map</button>
+          <button class="btn" @click="restart">Again</button>
         </div>
+
+        <!--
+          Asked here and nowhere else. This is the one moment the player has
+          just experienced the level and has an opinion worth having; a rating
+          prompt anywhere else is asking someone to remember how they felt.
+        -->
+        <RateLevel v-if="mode !== 'replay'" :release-id="releaseId" :level-id="playLevel.id" />
       </div>
     </transition>
   </div>
@@ -188,6 +195,10 @@
 
 <script setup>
 import { ref, shallowRef, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import RateLevel from '../components/RateLevel.vue'
+import { CATEGORY, SCOPE, submitRun } from '../core/records.js'
+import { session } from '../core/session.js'
+import { RULES_VERSION } from '../core/releases.js'
 import WorldCanvas from '../components/WorldCanvas.vue'
 import Timeline from '../components/Timeline.vue'
 import { markDone } from '../core/library.js'
@@ -199,18 +210,18 @@ import { settings, setSetting, FPS_OPTIONS, fpsLabel } from '../core/settings.js
 
 const props = defineProps({
   level: { type: Object, required: true },
-  // 'play' — живая попытка, 'replay' — просмотр записи
+  // 'play' is a live attempt, 'replay' is watching a recording
   mode: { type: String, default: 'play' },
   record: { type: Object, default: null },
   speedrun: { type: Boolean, default: false },
   speed: { type: Number, default: 1 },
-  // какой выпуск играем; null — черновик автора
+  // which release is being played; null means the author's draft
   releaseId: { type: String, default: null },
-  // Уровень играется сам по себе или как звено прохождения главы. В цепочке
-  // уровень не сохраняет свою попытку отдельно и не отмечает общий прогресс —
-  // это делает та сторона, что ведёт цепочку, когда заход закончится.
+  // The level is played on its own or as a link in a chapter playthrough.
+  // Within a chain it neither saves its own attempt nor marks overall progress
+  // — whoever is running the chain does that when the visit ends.
   chained: { type: Boolean, default: false },
-  // где начат спидран — попадает в отладочную выгрузку
+  // where the speedrun began — ends up in the debug dump
   srScope: { type: String, default: null },
 })
 const emit = defineEmits(['back', 'result', 'ended'])
@@ -223,26 +234,27 @@ const fps = ref(0)
 const tick = ref(0)
 const time = ref(0)
 const won = ref(false)
-const reached = ref(false)   // цель выполнена, но игрок ещё не закончил
+const reached = ref(false)   // the goal is met, but the player has not finished yet
 const total = ref(0)
 const seeking = ref(false)
 const progress = ref(1)
 const unpacked = ref(null)
-// Где стоит бегунок, когда игрок разглядывает прошлое. null — не разглядывает.
+// Where the scrubber sits while the player studies the past. null means they are not.
 const previewTick = ref(null)
-// Докуда вообще можно мотать в живой игре: до того места, где попытка сейчас.
-// Пока смотрим прошлое, tick показывает предпросмотр, поэтому предел
-// запоминается отдельно — иначе полоса схлопывалась бы вслед за бегунком.
+// How far it is possible to seek in a live game: as far as the attempt has got.
+// While the past is being examined, tick shows the preview, so the limit is
+// remembered separately — otherwise the bar would collapse after the scrubber.
 const maxTick = ref(0)
-// Скорость просмотра. Начальное значение приходит снаружи, дальше зритель
-// крутит сам: разбирать чужой прогон удобнее медленно, пересматривать — быстро.
+// Playback speed. The initial value comes from outside and the viewer takes it
+// from there: picking apart someone's run is easier slowly, rewatching is
+// easier fast.
 const rate = ref(props.speed)
 
 const fpsCap = ref(settings().fpsCap)
 const setFps = (v) => { fpsCap.value = v; setSetting('fpsCap', v) }
 
-// Призрак: лучшая попытка на этом уровне, идущая рядом. Берётся только для
-// живой игры — в повторе гнаться не с кем.
+// The ghost: the best attempt on this level, running alongside. Only fetched
+// for a live game — in a replay there is nobody to race.
 const ghost = shallowRef(null)
 const gap = ref(null)
 
@@ -251,19 +263,21 @@ watch(() => props.level?.id, async (id) => {
   gap.value = null
   if (!id || props.mode !== 'play') return
   const b = await bestRun(id, { kind: KIND.LEVEL })
-  // С записью, снятой на другой версии, гонка бессмысленна: там был другой
-  // уровень или другая физика, и сравнивать время не с чем.
+  // Racing a recording from another version is meaningless: the level or the
+  // physics was different, so there is nothing to compare the time against.
   if (b && checkRecord(b).ok) ghost.value = b
 }, { immediate: true })
 const best = ref(null)
 const saved = ref(false)
 
-// Повтор идёт на той версии, при которой его сняли, а не на нынешней. Сам
-// уровень в записи не лежит — там ссылка на версию, а снимок по ней отдаёт
-// хранилище содержимого (местное сейчас, серверное потом).
+// A replay runs on the version it was recorded against, not the current one.
+// The level is not stored in the recording — there is a reference to the
+// version, and the content store resolves it (local for now, the server
+// later).
 const resolved = shallowRef(null)
 const playLevel = computed(() => resolved.value || props.level)
-// пока версия не приехала, играть нельзя: покажем чужой уровень
+// until the version arrives there is nothing to play: we would be showing a
+// different level
 const loading = ref(props.mode === 'replay')
 const lost = ref(false)
 
@@ -276,14 +290,15 @@ watch(() => props.record, async (rec) => {
   loading.value = false
 }, { immediate: true })
 
-// Сид считается из самого уровня, а не из попытки: один и тот же уровень
-// обязан давать один и тот же случайный поток, играют его первым или четвёртым,
-// отдельно или внутри главы. Случайность здесь — часть уровня, а не сеанса.
+// The seed is derived from the level itself rather than from the attempt: the
+// same level must give the same random stream whether it is played first or
+// fourth, alone or inside a chapter. Randomness here belongs to the level, not
+// to the session.
 const seed = computed(() => seedFor(playLevel.value))
 const record = computed(() => props.record)
 
-// Актуальна ли версия. Запись это не прячет и играть не мешает — просто
-// честно говорит, что снята на другом.
+// Whether the version is current. This neither hides the recording nor stops it
+// playing — it just says plainly that it was taken on something else.
 const outdated = computed(() => {
   if (props.mode !== 'replay' || !props.record) return null
   const v = checkRecord(props.record)
@@ -307,11 +322,12 @@ function onStats(s) {
 
 const fmt = (t) => formatTime(t || 0)
 
-// Перемотка полосой. На паузе остаёмся на паузе: зритель тянет ползунок,
-// чтобы рассмотреть момент, а не чтобы игра поехала дальше.
+// Seeking with the bar. Paused stays paused: the viewer drags the slider to
+// examine a moment, not to set the game running again.
 function onScrub(t) { canvas.value?.seek(t) }
 
-// Тянем полосу на паузе в игре: показываем прошлый кадр, попытку не трогаем.
+// Dragging the bar while paused in game: show a past frame, leave the attempt
+// alone.
 function onPreview(t) {
   if (props.speedrun || props.mode !== 'play') return
   previewTick.value = t
@@ -319,8 +335,8 @@ function onPreview(t) {
 }
 const onPreviewEnd = (t) => onPreview(t)
 
-// Продолжить с показанного места — вот теперь это откат, и он записан
-// отметкой в попытке. Всё, что было после, игрок переигрывает.
+// Resuming from the place being shown — now that is a rewind, and it is marked
+// in the attempt. Everything after it the player plays again.
 function resumeHere() {
   canvas.value?.endPreview(previewTick.value)
   previewTick.value = null
@@ -328,7 +344,7 @@ function resumeHere() {
   reached.value = false
   paused.value = false
 }
-// Вернуться туда, где и были: разглядывание следов не оставляет
+// Back to where we were: looking around leaves no trace
 function backToNow() {
   canvas.value?.endPreview(null)
   previewTick.value = null
@@ -337,19 +353,20 @@ function jump(seconds) {
   const t = Math.max(0, tick.value + Math.round(seconds * 60))
   canvas.value?.seek(t)
 }
-// Шаг по кадрам — только на паузе: покадровый разбор и есть главное, ради чего
-// перемотку заводят.
+// Stepping by frames only while paused: frame-by-frame study is the main
+// reason seeking exists at all.
 function frameStep(n) {
   if (!paused.value) return
   canvas.value?.stepFrames(n)
 }
 
-// Цель достигнута — но уровень не заканчивается сам.
+// The goal is met — but the level does not end by itself.
 //
-// Раньше он завершался в тот же миг, и это отбирало у игрока решение: вдруг он
-// хочет загнать в трубу ещё шаров, чем требуется. Теперь появляется кнопка
-// «Закончить», а до неё игра продолжается как ни в чём не бывало — часы идут,
-// шары двигаются. Нажатие и есть конец попытки.
+// It used to finish at that instant, which took the decision away from the
+// player: they may well want to send more balls into the pipe than required.
+// Now a Finish button appears, and until it is pressed the game carries on as
+// if nothing had happened — the clock runs, the balls move. Pressing it is what
+// ends the attempt.
 watch(collected, (n) => {
   if (n >= playLevel.value.goal) reached.value = true
 })
@@ -358,57 +375,92 @@ async function finishNow() {
   if (won.value || props.mode !== 'play') return
   won.value = true
   canvas.value?.finish()
-  // Общий прогресс пишет только обычное прохождение. В спидране прошлые
-  // заслуги не в счёт: там открыто ровно то, что открыто в этой попытке,
-  // иначе можно было бы начать главу с середины по старому сохранению.
+  // Only ordinary play writes overall progress. In a speedrun past
+  // achievements do not count: what is open is exactly what this attempt has
+  // opened, or a chapter could be started from the middle on an old save.
   if (!props.speedrun) markDone(props.level.id)
   await store()
 }
 
-// Каждая попытка сохраняется целиком — и удачная, и брошенная: посмотреть
-// «как я слил» бывает нужнее, чем посмотреть удачный прогон.
+// Every attempt is saved in full, successful or abandoned: watching how it
+// fell apart is often more useful than watching one that worked.
 async function store() {
   if (saved.value) return
   const snap = canvas.value?.snapshot()
   if (!snap) return
   saved.value = true
-  // Звено цепочки отдаёт свой заход наверх и на этом заканчивает: сегмент
-  // ляжет в попытку главы, а отдельной записи уровня не будет — иначе одна
-  // игра порождала бы две записи об одном и том же.
+  // A link in a chain hands its visit upwards and stops there: the segment goes
+  // into the chapter attempt and no separate level recording is made — one
+  // playthrough would otherwise produce two recordings of the same thing.
   if (props.chained) { emit('result', snap); return }
   await saveRun(snap, {
     kind: KIND.LEVEL, targetId: props.level.id, speedrun: props.speedrun,
-    releaseId: props.releaseId || null,   // ссылка на версию, а не её снимок
+    releaseId: props.releaseId || null,   // a reference to the version, not a snapshot of it
   })
   const b = await bestRun(props.level.id, { kind: KIND.LEVEL })
   best.value = b ? formatTime(b.ticks, b.rate) : null
+
+  await publishRun(snap)
 }
 
-// Повтор доигран. У попытки главы за этим сегментом идёт следующий, поэтому
-// о конце надо сообщить наверх, а не просто показать табличку.
+/**
+ * Offer the run to the leaderboard.
+ *
+ * Only finished runs of a published version, and only from someone signed in —
+ * an abandoned attempt is worth keeping locally to study, but it is not a time,
+ * and a draft has no frozen version for a time to mean anything against.
+ *
+ * The input log goes with it rather than just the number of ticks. That is what
+ * makes the time checkable: the same input through the same physics gives the
+ * same outcome, so the server can recompute the result instead of believing it.
+ *
+ * Never blocks and never complains. The level is beaten and the panel is up;
+ * a leaderboard that could not be reached is not the player's problem to solve
+ * in that moment.
+ */
+async function publishRun(snap) {
+  if (!snap.finished || !props.releaseId || session.status !== 'signed-in') return
+
+  try {
+    await submitRun(props.releaseId, {
+      scope: SCOPE.LEVEL,
+      target: props.level.id,
+      category: CATEGORY.ANY,
+      ticks: snap.ticks,
+      seed: snap.seed,
+      rulesVersion: RULES_VERSION,
+      input: snap.input || [],
+    })
+  } catch {
+    // Nothing useful to say here — the run is safe locally either way.
+  }
+}
+
+// The replay finished. In a chapter attempt the next segment follows this one,
+// so the end has to be reported upwards rather than just shown on a card.
 function onReplayEnd() {
   if (props.chained) { emit('ended'); return }
   won.value = true
 }
 
 function togglePause() {
-  // Сняли паузу, не решив ничего про показанное, — возвращаемся к попытке.
-  // Молча продолжать с прошлого места нельзя: это был бы откат, о котором
-  // игрок не просил.
+  // Unpausing without deciding anything about what was shown returns to the
+  // attempt. Quietly carrying on from the past moment is not allowed: that
+  // would be a rewind the player never asked for.
   if (paused.value && previewTick.value !== null) backToNow()
   paused.value = !paused.value
 }
 
-// Снимок ровно того, что на экране, вместе с камерой. Ставим паузу: иначе
-// снимок окажется на кадр позже того, что человек хотел заснять.
+// A picture of exactly what is on screen, camera and all. It pauses first, or
+// the shot lands a frame later than the thing the person meant to capture.
 function shot() {
   paused.value = true
   saveScreenshot(canvas.value?.svgEl(), `${playLevel.value.id}-t${tick.value}`)
 }
 
-// Выгрузка: содержимое (библиотека, прогресс, записи) плюс сама попытка —
-// сид и ввод, из которых момент воспроизводится точно. Физики в ней нет: она
-// пересчитывается, а не хранится.
+// The dump: the content (library, progress, recordings) plus the attempt
+// itself — the seed and the input, from which the moment can be reproduced
+// exactly. No physics in it: that is recomputed, not stored.
 function dump() {
   saveState({
     ...(canvas.value?.debugInfo() || {}),
@@ -422,12 +474,12 @@ function dump() {
 
 const canRewind = computed(() => props.mode === 'play' && !props.speedrun)
 
-// Откат на несколько секунд назад. Мир не отматывается — он пересчитывается
-// заново по обрезанной записи, поэтому на тяжёлом уровне это не мгновенно.
+// Rewinding a few seconds. The world is not wound back — it is recomputed from
+// the trimmed recording, so on a heavy level this is not instant.
 function rewind(seconds) {
   if (!canRewind.value) return
   canvas.value?.rollback(Math.max(0, tick.value - Math.round(seconds * 60)))
-  collected.value = 0   // счёт цели считается миром заново
+  collected.value = 0   // the world counts the goal again from scratch
 }
 
 function restart() {
@@ -439,13 +491,14 @@ function restart() {
   canvas.value.restart()
 }
 
-// Выход посреди уровня — тоже попытка. Записываем её, прежде чем уйти.
+// Leaving in the middle of a level is an attempt too. Record it before going.
 async function leave() {
-  // Цель выполнена, а игрок уходит, не нажав «Закончить», — уровень всё равно
-  // пройден. Кнопка про то, играть ли дальше, а не про то, засчитывать ли:
-  // условие уже выполнено, и терять из-за этого прогресс было бы обидно и
-  // непонятно. Без этого попытка уходила недоигранной, следующий уровень не
-  // открывался и тропа к нему не рисовалась.
+  // The goal is met and the player leaves without pressing Finish — the level
+  // still counts. That button is about whether to keep playing, not about
+  // whether it counts: the condition is already satisfied, and losing progress
+  // over it would be both annoying and baffling. Without this the attempt left
+  // unfinished, the next level did not unlock and the path to it was not
+  // drawn.
   if (props.mode === 'play' && reached.value && !won.value) { await finishNow(); emit('back'); return }
   if (props.mode === 'play' && !saved.value && tick.value > 0) await store()
   emit('back')
@@ -456,8 +509,8 @@ function onKey(e) {
   if (e.key === 'F9') { e.preventDefault(); shot(); return }
   if (e.key === 'F10') { e.preventDefault(); dump(); return }
   if (props.mode !== 'replay') return
-  // Раскладка как у видеоразбора: пробел — пауза, стрелки — время,
-  // запятая и точка — по кадру.
+  // The layout of a video review tool: space pauses, arrows move through time,
+  // comma and full stop step a frame.
   if (e.key === ' ') { e.preventDefault(); togglePause() }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); jump(-5) }
   else if (e.key === 'ArrowRight') { e.preventDefault(); jump(5) }
@@ -467,8 +520,9 @@ function onKey(e) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
-// Вкладку свернули — ставим паузу сами: иначе игрок вернётся к миру,
-// который простоял без него, и не поймёт, почему всё лежит.
+// The tab was hidden, so pause it ourselves: otherwise the player comes back to
+// a world that stood still without them and cannot tell why everything has
+// collapsed.
 function onHidden() { if (document.hidden) paused.value = true }
 onMounted(() => document.addEventListener('visibilitychange', onHidden))
 onBeforeUnmount(() => document.removeEventListener('visibilitychange', onHidden))

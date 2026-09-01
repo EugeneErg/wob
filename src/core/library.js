@@ -1,5 +1,3 @@
-import builtin from '../levels/library.json' with { type: 'json' }
-
 // Библиотека — всё содержимое игры в одной структуре:
 //   история → главы → уровни, плюс общий склад ассетов.
 // Ассет — сохранённая настройка сущности (тип + данные). «Горячие» ассеты
@@ -11,29 +9,111 @@ const PROGRESS = 'goo.progress.v1'
 
 const uid = (p) => `${p}-${Math.random().toString(36).slice(2, 9)}`
 
+const empty = () => ({ stories: [], chapters: [], levels: [], assets: [] })
+
 let cache = null
+
+// Что приехало с сервера, а что человек сделал здесь.
+//
+// Игра больше не везёт содержимое в сборке: всё, во что можно играть, приходит
+// из каталога. Отсюда и разделение — сыгранное держится в памяти и переспра-
+// шивается у сервера, а в localStorage остаются только черновики редактора,
+// то есть единственное, что принадлежит этому браузеру и больше нигде не
+// существует. Складывать их в одну кучу значило бы либо терять черновики при
+// обновлении каталога, либо копить у себя чужие истории, которые всё равно
+// нельзя ни изменить, ни опубликовать.
+const remote = new Set()
+
+export const isRemote = (id) => remote.has(id)
 
 export function library() {
   if (cache) return cache
+
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) { cache = JSON.parse(raw); return cache }
-  } catch { /* повреждённое хранилище — начнём с встроенного */ }
-  cache = structuredClone(builtin)
-  save()
+    cache = raw ? JSON.parse(raw) : empty()
+  } catch {
+    cache = empty()
+  }
+
   return cache
 }
 
+/**
+ * Влить содержимое, пришедшее с сервера.
+ *
+ * Заменяет предыдущую серверную версию той же истории целиком: каталог —
+ * источник правды, и подмешивать к нему остатки прошлого ответа значит
+ * когда-нибудь показать игроку главу, которой в релизе уже нет.
+ */
+export function hydrate(bundle) {
+  const lib = library()
+  const ids = new Set((bundle.chapters || []).map((c) => c.id))
+  const levelIds = new Set((bundle.levels || []).map((l) => l.id))
+
+  lib.stories = lib.stories.filter((s) => s.id !== bundle.id)
+  lib.chapters = lib.chapters.filter((c) => !ids.has(c.id) && !(remote.has(c.id) && c.storyId === bundle.id))
+  lib.levels = lib.levels.filter((l) => !levelIds.has(l.id))
+
+  lib.stories.push({
+    id: bundle.id,
+    title: bundle.title,
+    cover: bundle.cover || '#1a2b33',
+    chapters: (bundle.chapters || []).map((c) => c.id),
+    hot: [],
+  })
+
+  for (const chapter of bundle.chapters || []) {
+    lib.chapters.push({ ...chapter, storyId: bundle.id, hot: chapter.hot || [] })
+    remote.add(chapter.id)
+  }
+
+  for (const level of bundle.levels || []) {
+    lib.levels.push({ ...level, hot: level.hot || [] })
+    remote.add(level.id)
+  }
+
+  remote.add(bundle.id)
+
+  return cache
+}
+
+/** Забыть всё серверное — например, при выходе из аккаунта. */
+export function dropRemote() {
+  const lib = library()
+
+  lib.stories = lib.stories.filter((s) => !remote.has(s.id))
+  lib.chapters = lib.chapters.filter((c) => !remote.has(c.id))
+  lib.levels = lib.levels.filter((l) => !remote.has(l.id))
+  remote.clear()
+
+  return cache
+}
+
+/**
+ * Сохранить — но только своё.
+ *
+ * Серверные истории намеренно не попадают в localStorage: они не наши, они
+ * меняются релизами, и держать их копию значит рано или поздно играть в
+ * устаревшую версию, не зная об этом.
+ */
 export function save(lib = cache) {
   cache = lib
-  localStorage.setItem(KEY, JSON.stringify(lib))
+  localStorage.setItem(KEY, JSON.stringify({
+    stories: lib.stories.filter((s) => !remote.has(s.id)),
+    chapters: lib.chapters.filter((c) => !remote.has(c.id)),
+    levels: lib.levels.filter((l) => !remote.has(l.id)),
+    assets: lib.assets,
+  }))
+
   return lib
 }
 
 export function resetLibrary() {
-  cache = structuredClone(builtin)
+  cache = empty()
   save()
   localStorage.removeItem(PROGRESS)
+
   return cache
 }
 
@@ -194,6 +274,17 @@ function progress() {
   try { return JSON.parse(localStorage.getItem(PROGRESS)) || {} } catch { return {} }
 }
 export const isDone = (levelId) => !!progress()[levelId]
+/**
+ * Заменить прогресс целиком — тем, что пройдено в выбранном прохождении.
+ *
+ * Именно заменить, а не дополнить. Прогресс теперь принадлежит прохождению, и
+ * второе обязано начинаться пустым; подмешивание к нему прошлых заслуг сделало
+ * бы новый слот уже пройденным, то есть отменило бы смысл слотов.
+ */
+export function setProgress(levelIds) {
+  localStorage.setItem(PROGRESS, JSON.stringify(Object.fromEntries(levelIds.map((id) => [id, true]))))
+}
+
 export function markDone(levelId) {
   const p = progress()
   p[levelId] = true

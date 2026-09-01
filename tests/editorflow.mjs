@@ -3,6 +3,8 @@ const store = new Map()
 globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) }
 await import('../src/entities/index.js')
 const lib = await import('../src/core/library.js')
+const { seed } = await import('./seed.mjs')
+seed(lib)
 const { getEntity } = await import('../src/core/registry.js')
 const { shapesForLevel } = await import('../src/core/scene.js')
 

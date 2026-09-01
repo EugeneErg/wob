@@ -15,9 +15,9 @@
     :aria-valuenow="value"
   >
     <div class="bar">
-      <!-- Развёрнутая часть: досюда перемотка мгновенна. Ровно та же мысль,
-           что и полоса загрузки у видео — видно, докуда можно прыгнуть без
-           ожидания. -->
+      <!-- The unrolled part: seeking this far is instant. The same idea as the
+           buffered bar on a video — you can see how far you may jump without
+           waiting. -->
       <div class="buf" :style="{ width: pct(buffered) }" />
       <div class="done" :style="{ width: pct(value) }" />
       <div class="knob" :style="{ left: pct(value) }" />
@@ -26,22 +26,22 @@
 </template>
 
 <script setup>
-// Полоса времени с бегунком.
+// A timeline with a scrubber.
 //
-// Тянуть можно в обе стороны, и по дороге показывается тот кадр, над которым
-// палец: перемотка происходит во время движения, а не после отпускания.
-// Поэтому событий два — seek на каждое движение и commit на отпускание: первое
-// нужно, чтобы видеть, куда ведёшь, второе — чтобы решить, что делать дальше
-// (в игре, например, откатиться именно сюда).
+// It drags both ways, and on the way it shows the frame under your finger:
+// seeking happens while moving, not after letting go. Hence two events — seek
+// on every move and commit on release. The first is so you can see where you
+// are going; the second is so something can be decided afterwards (in game,
+// rewinding to exactly this point).
 import { ref } from 'vue'
 
 const props = defineProps({
   value: { type: Number, default: 0 },
   max: { type: Number, default: 1 },
-  // докуда развёрнуто; -1 — считать развёрнутым всё
+  // how far it is unrolled; -1 means treat everything as unrolled
   buffered: { type: Number, default: -1 },
   disabled: { type: Boolean, default: false },
-  // шаг стрелками, в единицах value
+  // arrow-key step, in units of value
   step: { type: Number, default: 60 },
 })
 const emit = defineEmits(['seek', 'commit'])
@@ -73,7 +73,7 @@ function up(e) {
   emit('commit', at(e))
 }
 
-// Стрелки — точная подводка, когда пальцем не попасть
+// Arrow keys are for the fine adjustment a finger cannot manage
 function key(e) {
   if (props.disabled) return
   const d = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0

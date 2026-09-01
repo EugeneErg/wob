@@ -14,9 +14,11 @@ Object.defineProperty(globalThis.localStorage, Symbol.iterator, { value: () => s
 const { check } = await import('./assert.mjs')
 const { dumpState, loadState } = await import('../src/core/debug.js')
 const lib = await import('../src/core/library.js')
+const { seed } = await import('./seed.mjs')
+seed(lib)
 const { saveRun, runsFor, KIND } = await import('../src/core/replays.js')
 
-lib.resetLibrary()
+seed(lib)
 const st = lib.stories()[0]
 const ch = lib.chaptersOf(st.id)[0]
 const lvl = ch.nodes[0].levelId

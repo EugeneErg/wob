@@ -1,38 +1,48 @@
 <template>
   <div class="screen">
     <header class="bar">
-      <button class="btn ghost small" @click="$emit('back')">← Меню</button>
-      <h2>{{ mode === 'play' ? 'Истории' : 'Редактор историй' }}</h2>
+      <button class="btn ghost small" @click="$emit('back')">← Menu</button>
+      <h2>{{ mode === 'play' ? (intent === 'speedrun' ? 'Speedrun' : 'Stories') : 'Story editor' }}</h2>
       <template v-if="mode === 'edit'">
-        <button class="btn small" @click="doImport">Загрузить из файла</button>
-        <button class="btn small" @click="dump">Выгрузить всё</button>
-        <button class="btn small primary" @click="add">Новая история</button>
+        <button class="btn small" @click="doImport">Open a file</button>
+        <button class="btn small" @click="dump">Export everything</button>
+        <button class="btn small primary" @click="add">New story</button>
       </template>
     </header>
 
     <ul class="grid">
       <li v-for="s in list" :key="s.id" class="card">
         <div class="cover" :style="coverStyle(s.cover)" @click="$emit('open', s.id, false)">
-          <span class="badge">{{ chapters(s.id).length }} глав · {{ levelCount(s.id) }} уровней</span>
+          <span class="badge">{{ chapters(s.id).length }} chapters · {{ levelCount(s.id) }} levels</span>
           <span v-if="mode === 'play'" class="progress">{{ done(s.id) }} / {{ levelCount(s.id) }}</span>
         </div>
         <div class="meta">
           <input v-if="mode === 'edit'" v-model="s.title" class="title-input" @change="persist" />
           <h3 v-else>{{ s.title }}</h3>
           <div class="row">
-            <!-- Режим выбирается здесь же, при входе: не «играть, а потом
-                 где-то внутри решить», а сразу — с чем заходим. Спидран
-                 истории накрывает её главы и уровни, переспрашивать их не
-                 придётся. -->
+            <!-- The mode is chosen right here, on the way in: not "play, then
+                 decide somewhere inside", but what we are going in with. A
+                 story speedrun covers its chapters and levels, so they will not
+                 ask again.
+
+                 Which of the two leads depends on what the player came for. The
+                 buttons are the same either way; someone who arrived through
+                 Speedrun should not have to hunt for it a second time. -->
             <template v-if="mode === 'play'">
-              <button class="btn small primary" @click="$emit('open', s.id, false)">Прохождение</button>
-              <button class="btn small sr" @click="$emit('open', s.id, true)">Спидран</button>
+              <button
+                class="btn small" :class="intent === 'speedrun' ? 'sr primary' : 'primary'"
+                @click="$emit('open', s.id, intent === 'speedrun')"
+              >{{ intent === 'speedrun' ? 'Speedrun' : 'Play' }}</button>
+              <button
+                class="btn small" :class="intent === 'speedrun' ? '' : 'sr'"
+                @click="$emit('open', s.id, intent !== 'speedrun')"
+              >{{ intent === 'speedrun' ? 'Play' : 'Speedrun' }}</button>
             </template>
-            <button v-else class="btn small primary" @click="$emit('open', s.id)">Открыть</button>
+            <button v-else class="btn small primary" @click="$emit('open', s.id)">Open</button>
             <template v-if="mode === 'edit'">
-              <button class="btn small" @click="cover(s)">Обложка</button>
-              <button class="btn small" @click="save(s)">В файл</button>
-              <button class="btn small danger" @click="drop(s)">Удалить</button>
+              <button class="btn small" @click="cover(s)">Cover</button>
+              <button class="btn small" @click="save(s)">Save to file</button>
+              <button class="btn small danger" @click="drop(s)">Delete</button>
             </template>
           </div>
         </div>
@@ -40,23 +50,62 @@
     </ul>
 
     <footer v-if="mode === 'edit'" class="foot">
-      <button class="btn ghost small" @click="factory">Вернуть встроенное содержимое</button>
-      <span class="note">Импорт всегда добавляет, ничего не затирая.</span>
+      <button class="btn ghost small" @click="factory">Restore the built-in content</button>
+      <span class="note">Opening a file always adds — nothing is ever overwritten.</span>
     </footer>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import * as lib from '../core/library.js'
+import { loadCatalog, loadStory } from '../core/catalog.js'
+import { createStory, deleteStory } from '../core/authoring.js'
+import { session } from '../core/session.js'
 import { loadState } from '../core/debug.js'
 import { downloadJSON, pickJSON, pickImage, fileName, coverStyle } from '../core/fileio.js'
 
-defineProps({ mode: { type: String, default: 'play' } })
+const props = defineProps({
+  mode: { type: String, default: 'play' },
+  // What brought the player here: 'play', 'speedrun' or 'create'. It only
+  // decides which option is put forward, never what is possible.
+  intent: { type: String, default: 'play' },
+})
 const emit = defineEmits(['back', 'open'])
 
 const list = ref(lib.stories())
 const refresh = () => (list.value = lib.stories())
+
+// Содержимое приходит с сервера, и до ответа показывать нечего.
+const loading = ref(false)
+const failed = ref(null)
+
+onMounted(async () => {
+  // В редакторе каталог не нужен: там свои черновики, которые живут здесь.
+  if (props.mode === 'edit') return
+
+  loading.value = true
+  failed.value = null
+
+  try {
+    const shelf = await loadCatalog({ force: true })
+
+    // Каждую историю подтягиваем целиком: без глав и уровней карточка знает
+    // только заголовок, а список показывает, сколько внутри.
+    for (const story of [...shelf.canon, ...shelf.published]) {
+      await loadStory(story.id)
+    }
+
+    preview.value = shelf.preview
+    refresh()
+  } catch (e) {
+    failed.value = e.message
+  } finally {
+    loading.value = false
+  }
+})
+
+const preview = ref(false)
 const persist = () => lib.save()
 
 const chapters = (id) => lib.chaptersOf(id)
@@ -66,10 +115,21 @@ const done = (id) => chapters(id).reduce((n, c) => n + c.nodes.filter((x) => lib
 function add() {
   const { story } = lib.createStory()
   refresh()
+
+  // Straight to the server, as its own write. Nothing an author makes should
+  // exist only in this browser — a closed tab used to take the lot.
+  if (session.status === 'signed-in') createStory(story, lib.chaptersOf(story.id)[0])
+
   emit('open', story.id)
 }
 function drop(s) {
-  if (confirm(`Удалить историю «${s.title}» со всеми главами и уровнями?`)) { lib.removeStory(s.id); refresh() }
+  if (!confirm(`Delete "${s.title}" with all its chapters and levels?`)) return
+
+  lib.removeStory(s.id)
+
+  if (session.status === 'signed-in') deleteStory(s.id)
+
+  refresh()
 }
 async function cover(s) {
   const url = await pickImage().catch(() => null)
@@ -81,27 +141,28 @@ async function doImport() {
   try {
     const data = await pickJSON()
 
-    // Отладочная выгрузка (F10 в игре) — это не пакет с историями, а слепок
-    // всего состояния: библиотека, прогресс, записи, выпуски. Отличается она
-    // полем storage. Загружать её надо целиком и с предупреждением: она
-    // ЗАМЕНЯЕТ всё, а не добавляет, — иначе чужой случай не воспроизвести.
+    // A debug dump (F10 in game) is not a bundle of stories but a snapshot of
+    // everything: library, progress, recordings, releases. The storage field is
+    // what tells them apart. It has to be loaded whole and with a warning,
+    // because it REPLACES rather than adds — otherwise someone else's case
+    // cannot be reproduced.
     if (data?.storage) {
-      const where = data.now?.levelId ? ` (уровень ${data.now.levelId}, тик ${data.now.tick ?? '?'})` : ''
-      if (!confirm(`Это отладочная выгрузка от ${new Date(data.at).toLocaleString('ru-RU')}${where}.\n\n`
-        + 'Вся текущая библиотека, прогресс и записи будут заменены. Продолжить?')) return
+      const where = data.now?.levelId ? ` (level ${data.now.levelId}, tick ${data.now.tick ?? '?'})` : ''
+      if (!confirm(`This is a debug dump from ${new Date(data.at).toLocaleString()}${where}.\n\n`
+        + 'Your entire library, progress and recordings will be replaced. Continue?')) return
       loadState(data)
       refresh()
-      alert('Состояние загружено. Найдите попытку в списке записей и пересмотрите её.')
+      alert('State loaded. Find the run in the recordings list and watch it back.')
       return
     }
 
     const added = lib.importBundle(data)
     refresh()
-    alert(added.length ? `Загружено: ${added.map((s) => s.title).join(', ')}` : 'Файл прочитан')
+    alert(added.length ? `Added: ${added.map((s) => s.title).join(', ')}` : 'File read')
   } catch (e) { alert(e.message) }
 }
 function factory() {
-  if (confirm('Вся библиотека и прогресс будут заменены встроенными. Продолжить?')) { lib.resetLibrary(); refresh() }
+  if (confirm('Your local drafts and progress will be cleared. Continue?')) { lib.resetLibrary(); refresh() }
 }
 </script>
 
@@ -114,6 +175,9 @@ function factory() {
   background: linear-gradient(var(--ink) 70%, transparent);
 }
 .bar h2 { flex: 1; margin: 0; font-family: var(--font-display); font-size: 26px; }
+.state { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+.state.err { color: #e0736b; }
+
 .grid {
   list-style: none; margin: 0; padding: 0 clamp(16px, 4vw, 44px);
   display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

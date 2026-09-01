@@ -18,17 +18,19 @@
         <stop offset="1" stop-color="#1d2a24" />
       </linearGradient>
     </defs>
-    <!-- Призрак: чужой (или свой прошлый) прогон, идущий рядом. Отдельный мир
-         поверх нынешнего, полупрозрачный. На игру он не влияет никак — это
-         вторая симуляция, которая просто рисуется тем же способом. -->
+    <!-- The ghost: somebody else's run, or your own earlier one, going along
+         beside you. A separate world drawn over the current one, semi-transparent.
+         It affects the game in no way at all — it is a second simulation that
+         simply draws itself the same way. -->
     <g v-if="ghostShapes.length" class="ghost-run">
       <SvgScene :shapes="ghostShapes" />
     </g>
 
     <SvgScene :shapes="shapes" />
 
-    <!-- Курсор записи. В повторе рука игрока не видна ничем другим:
-         шар едет сам, и без метки непонятно, что его тащат. -->
+    <!-- The recorded cursor. In a replay there is nothing else to show the
+         player's hand: the ball moves on its own, and without a marker there is
+         no telling it is being dragged. -->
     <g v-if="ghost" class="ghost" :transform="`translate(${ghost.x} ${ghost.y})`">
       <circle r="13" />
       <circle r="4" class="core" />
@@ -51,39 +53,41 @@ const props = defineProps({
   level: { type: Object, required: true },
   interactive: { type: Boolean, default: true },
   paused: { type: Boolean, default: false },
-  // Режим: живая попытка или повтор записи
+  // Mode: a live attempt, or watching a recording
   mode: { type: String, default: PLAY },
-  // Запись для повтора (snapshot() из Run)
+  // The recording to replay (snapshot() from Run)
   record: { type: Object, default: null },
-  // Сид живой попытки. Задаёт его тот, кто начинает попытку, — так он
-  // попадает в запись и повтор идёт по тому же случайному потоку.
+  // The seed of a live attempt. Whoever starts the attempt sets it, which is
+  // how it reaches the recording and how the replay follows the same random
+  // stream.
   seed: { type: Number, default: 1 },
-  // Скорость повтора: 1 — как играли, 2 — вдвое быстрее
+  // Replay speed: 1 is as it was played, 2 is twice as fast
   speed: { type: Number, default: 1 },
-  // Спидран: откатов нет. Флаг уезжает в Run, где и стоит запрет.
+  // Speedrun: no rewinds. The flag travels into Run, where the ban lives.
   speedrun: { type: Boolean, default: false },
-  // Запись, которая идёт рядом призраком: обычно лучшая попытка на этом
-  // уровне. Гонка с ней и есть главный смысл спидрана — видно не итоговое
-  // время, а где именно ты отстаёшь.
+  // The recording running alongside as a ghost: usually the best attempt on
+  // this level. Racing it is what a speedrun is really about — you see not the
+  // final time but exactly where you are losing it.
   ghost: { type: Object, default: null },
 })
 const emit = defineEmits(['progress', 'missing', 'stats', 'ended'])
 
 const svg = ref(null)
 const shapes = shallowRef([])
-// В живой игре это Run, в повторе — Scrubber, который Run внутри себя держит
-// и умеет вставать на любой тик. Всё остальное работает с sim() — с тем самым
-// прогоном, чей мир сейчас на экране.
+// In a live game this is a Run; in a replay it is a Scrubber, which holds a Run
+// inside itself and can stand on any tick. Everything else works through sim()
+// — whichever run's world is on screen right now.
 const run = shallowRef(null)
 const scrub = shallowRef(null)
-// Прогон-призрак. Идёт теми же тиками, что и основной, поэтому отставание
-// считается прямо в тиках, а не в секундах по часам.
-// Предпросмотр прошлого в живой игре.
+// The ghost run. It advances by the same ticks as the main one, so the gap is
+// measured in ticks rather than in seconds off a clock.
+// Previewing the past during a live game.
 //
-// На паузе полосу можно тянуть назад и смотреть, что было. Это ещё не откат:
-// мир игрока стоит на месте, а показывается отдельный прогон, собранный из уже
-// записанных действий. Откат случится, только если игрок решит продолжить
-// именно оттуда, — и тогда это будет его выбор, а не побочный след разглядывания.
+// While paused the bar can be dragged back to look at what happened. This is
+// not yet a rewind: the player's world stands still and what is shown is a
+// separate run assembled from the inputs already recorded. The rewind happens
+// only if the player decides to carry on from there — and then it is their
+// choice rather than a side effect of looking.
 const preview = shallowRef(null)
 
 const ghostRun = shallowRef(null)
@@ -93,9 +97,11 @@ const ghost = shallowRef(null)
 const w = computed(() => props.level.width || 1600)
 const h = computed(() => props.level.height || 900)
 
-// Камера. Зума нет: окно постоянного размера ездит по уровню.
-// Камера — дело зрителя, а не мира: в записи её нет, и на симуляцию она
-// не влияет. Поэтому свой повтор можно смотреть с другого места экрана.
+// The camera. No zoom: a window of fixed size travels over the level.
+//
+// The camera belongs to the viewer rather than to the world: it is not in the
+// recording and does not affect the simulation. Which is why your own replay
+// can be watched from somewhere else entirely.
 const cam = ref({ x: 0, y: 0, w: 1600, h: 900 })
 const EDGE = 0.14
 const SPEED = 900
@@ -126,9 +132,9 @@ let raf = 0
 let last = 0
 let off = null
 
-// Кадры в секунду — это про экран, а не про симуляцию. Считаем их отдельно
-// от тиков и показываем оба числа: расхождение между ними сразу видно,
-// если устройство не тянет.
+// Frames per second is about the screen, not the simulation. They are counted
+// separately from ticks and both numbers are shown: the gap between them is
+// visible immediately when a device cannot keep up.
 let frames = 0
 let fpsAt = 0
 const fps = ref(0)
@@ -148,11 +154,11 @@ function build() {
   frames = 0; fpsAt = 0; fps.value = 0
 }
 
-// Когда призрак и когда игрок доводили шар до цели. Сравнивать «кто где» надо
-// на общих отметках, а не по номеру тика: отставание в тиках само по себе
-// ничего не значит, потому что оба могут быть в разных местах уровня. А вот
-// «третий шар в трубе: у тебя на 4.2 с, у призрака на 3.6 с» — это и есть
-// то, что спидранер хочет знать.
+// When the ghost and when the player got a ball to the goal. Comparing who is
+// where has to happen at shared marks rather than by tick number: a gap in
+// ticks means nothing on its own, since the two can be in different parts of
+// the level. Whereas "third ball in the pipe: you at 4.2s, the ghost at 3.6s"
+// is exactly what a speedrunner wants to know.
 let ghostSplits = []
 let mySplits = []
 let offGhost = null
@@ -164,9 +170,10 @@ function buildGhost() {
   ghostSplits = []
   mySplits = []
   if (!props.ghost?.input?.length) return
-  // Призрак играется на СВОЁМ содержимом: если запись снята на другой версии
-  // уровня, гнаться с ней нечестно, но и прятать её не нужно — пусть идёт,
-  // а несовпадение версии видно на экране.
+  // The ghost plays on ITS OWN content: if the recording was taken on another
+  // version of the level, racing it is not a fair race — but hiding it is not
+  // the answer either. Let it run, with the version mismatch visible on
+  // screen.
   ghostRun.value = replayOf(props.level, props.ghost)
   let n = 0
   offGhost = ghostRun.value.world.on(EVENTS.progress, (e) => {
@@ -176,11 +183,13 @@ function buildGhost() {
   ghostShapes.value = ghostRun.value.world.scene()
 }
 
-// Расчёт отставания живёт в splits.js: в компоненте его нельзя проверить
-// тестом, а ошибка в нём тихо покажет игроку неверную разницу.
+// Working out the gap lives in splits.js: inside a component it could not be
+// covered by a test, and a mistake there would quietly show the player the
+// wrong difference.
 
-// Мир при перемотке назад создаётся заново — значит и подписку на события
-// надо перевешивать, иначе счётчик цели остался бы слушать выброшенный мир.
+// Seeking backwards builds the world afresh, so the event subscription has to
+// be moved with it — otherwise the goal counter would go on listening to a
+// world that has been thrown away.
 let boundWorld = null
 function bindWorld() {
   const r = sim()
@@ -201,23 +210,23 @@ function bindWorld() {
 function loop(t) {
   raf = requestAnimationFrame(loop)
 
-  // Предел частоты отрисовки. Кадр просто пропускается — симуляция от этого
-  // не меняется: она идёт фиксированными тиками, и пропущенный кадр означает
-  // лишь, что в следующий раз их отработается больше за раз.
+  // The frame rate cap. A frame is simply skipped, which changes nothing about
+  // the simulation: it runs on fixed ticks, and a skipped frame only means more
+  // of them are worked through next time.
   const cap = settings().fpsCap
   if (cap) {
-    const need = 1000 / cap - 0.5   // полмиллисекунды допуска, иначе теряем каждый второй кадр
+    const need = 1000 / cap - 0.5   // half a millisecond of slack, or every second frame is lost
     if (t - last < need) return
   }
 
   const elapsed = Math.min((t - last) / 1000 || 0, 0.25)
   last = t
 
-  // счётчик кадров идёт всегда, даже на паузе: он про отрисовку
+  // the frame counter always runs, even while paused: it is about drawing
   frames++
   if (t - fpsAt >= 500) { fps.value = Math.round((frames * 1000) / (t - fpsAt)); frames = 0; fpsAt = t }
 
-  // Разглядывание прошлого на паузе: показываем не живой мир, а предпросмотр.
+  // Examining the past while paused: show the preview rather than the live world.
   const pv = preview.value
   if (pv) {
     if (pv.busy) pv.pump()
@@ -232,15 +241,16 @@ function loop(t) {
   }
 
   const sc = scrub.value
-  // Фоновое разворачивание записи: пока зритель смотрит, запись проигрывается
-  // вперёд и через равные промежутки снимается копия мира. Перемотка потом
-  // считается от ближайшей копии, а не от начала. Копии живут только здесь,
-  // в записи по-прежнему одни действия.
+  // Unrolling the recording in the background: while the viewer watches, the
+  // recording is played forward and a copy of the world is taken at regular
+  // intervals. Seeking later starts from the nearest copy rather than from the
+  // beginning. The copies live only here — the recording still holds nothing
+  // but inputs.
   if (sc && !sc.busy) sc.unpack()
 
-  // Перемотка. Мир не отматывается, а считается заново, поэтому работа идёт
-  // порциями по кадру: на лёгком уровне зритель этого не заметит, на тяжёлом
-  // увидит полосу вместо застывшего окна.
+  // Seeking. The world is not wound back but recomputed, so the work is done a
+  // frame at a time: on a light level the viewer never notices, and on a heavy
+  // one they get a progress bar instead of a frozen window.
   if (sc?.busy) {
     sc.pump()
     bindWorld()
@@ -270,12 +280,13 @@ function loop(t) {
       shapes.value = r.world.scene()
       if (props.mode === REPLAY) {
         trackGhost(); followCamera()
-        // Лестница снимков достраивается по ходу обычного просмотра: зритель
-        // просто смотрит, а отмотка назад от этого дешевеет.
+        // The ladder of snapshots is built up during ordinary watching: the
+        // viewer just watches, and seeking backwards gets cheaper for it.
 
       }
-      // Призрак шагает ровно столько же тиков: обе симуляции идут по общему
-      // счётчику, поэтому «отстаю на N тиков» — точная величина, а не на глаз.
+      // The ghost steps exactly the same number of ticks: both simulations run
+      // off one counter, so "N ticks behind" is an exact figure rather than an
+      // impression.
       const g = ghostRun.value
       if (g) {
         for (let i = 0; i < ticks && g.tick < (props.ghost.ticks || 0); i++) g.frame(1 / 60)
@@ -289,17 +300,18 @@ function loop(t) {
     seeking: false, total: sc?.total ?? r.tick,
     unpacked: sc ? sc.unpacked : -1,
     previewing: false,
-    // Отставание от призрака в тиках: минус — идём впереди записи
+    // The gap to the ghost in ticks: negative means ahead of the recording
     ghostTick: ghostRun.value ? ghostRun.value.tick : null,
     ghostGap: ghostRun.value ? gapAt(mySplits, ghostSplits) : null,
   })
   if (r.stopped && props.mode === REPLAY) emit('ended')
 }
 
-// В повторе камера едет по записанной дорожке: иначе зритель должен был бы
-// сам угадывать, куда смотреть, и успевать за чужой рукой. Если зритель
-// взялся крутить сам (free), дорожку не навязываем — смотреть чужой прогон
-// со своей точки тоже надо уметь.
+// In a replay the camera follows the recorded track: otherwise the viewer would
+// have to guess where to look and keep up with someone else's hand. Once the
+// viewer starts moving it themselves (free), the track is not forced back on
+// them — watching another run from your own vantage point is a thing people
+// want to do.
 const free = ref(false)
 function followCamera() {
   if (free.value) return
@@ -309,7 +321,7 @@ function followCamera() {
   clampCam()
 }
 
-// Где сейчас «палец» записи: последнее событие, докуда доиграли
+// Where the recording's finger is now: the last event played through
 function trackGhost() {
   const r = sim()
   if (!r) return
@@ -329,9 +341,10 @@ onBeforeUnmount(() => { cancelAnimationFrame(raf); off?.(); offGhost?.() })
 
 watch(() => props.record, () => { build(); setupCamera() })
 
-// Живой ввод не идёт в мир напрямую — он встаёт в очередь и попадёт туда
-// на границе ближайшего тика. Только так момент действия можно записать
-// числом тика, одинаковым у всех, кто потом эту запись проиграет.
+// Live input does not go straight into the world — it queues up and arrives on
+// the boundary of the next tick. That is the only way the moment of an action
+// can be recorded as a tick number that is the same for everyone who replays
+// it later.
 const pt = (e) => svgPoint(svg.value, e)
 const live = () => props.interactive && props.mode === PLAY && !props.paused
 
@@ -357,17 +370,18 @@ function stop(e) {
 defineExpose({
   restart: () => { build(); setupCamera() },
 
-  // --- разглядывание прошлого в живой игре ---
-  // Прогон собирается из того, что игрок уже наделал: сид и записанный ввод.
-  // Мир самой попытки при этом не трогается вовсе.
+  // --- examining the past during a live game ---
+  // The run is assembled from what the player has already done: the seed and
+  // the recorded input. The attempt's own world is not touched at all.
   previewAt: (tick) => {
     const r = run.value
     if (!r || props.mode !== PLAY) return
     if (!preview.value) preview.value = new Scrubber(props.level, r.snapshot())
     preview.value.seek(tick)
   },
-  // Вернуться к попытке. commit — продолжить с показанного места (это откат)
-  // или отбросить показанное и вернуться к тому, где игрок и был.
+  // Back to the attempt. commit means carrying on from the place being shown
+  // (which is a rewind), otherwise the preview is discarded and the player
+  // returns to where they were.
   endPreview: (commitTick = null) => {
     const r = run.value
     preview.value = null
@@ -376,11 +390,11 @@ defineExpose({
     shapes.value = sim()?.world.scene() || []
   },
   previewing: () => !!preview.value,
-  // Отладка: сам элемент сцены и то, что о ней сейчас известно
+  // Debugging: the scene element itself and what is known about it right now
   svgEl: () => svg.value,
-  // Отладочные сведения — это запись попытки, а не слепок мира. Из сида и
-  // ввода состояние восстанавливается целиком, поэтому частицам, скоростям и
-  // связям в выгрузке делать нечего.
+  // The debug information is a recording of the attempt, not a snapshot of the
+  // world. The state is fully reconstructible from the seed and the input, so
+  // particles, velocities and constraints have no business being in the dump.
   debugInfo: () => {
     const r = sim()
     if (!r) return null
@@ -388,26 +402,27 @@ defineExpose({
       levelId: props.level?.id,
       mode: props.mode,
       tick: r.tick,
-      camera: { ...cam.value },   // куда смотрели: на симуляцию не влияет, но помогает понять снимок
+      camera: { ...cam.value },   // where we were looking: no effect on the simulation, but it makes the shot legible
       diverged: r.diverged ?? null,
-      // Сама попытка: сид, ввод по тикам, дорожка камеры, контрольные отметки.
-      // В повторе снимать нечего — там играется чужая запись, её и укажем.
+      // The attempt itself: seed, input by tick, camera track, checkpoints. In
+      // a replay there is nothing to capture — somebody else's recording is
+      // playing, so name that instead.
       run: props.mode === PLAY ? r.snapshot() : null,
       replayOf: props.record ? { targetId: props.record.targetId, hash: props.record.hash, ticks: props.record.ticks } : null,
     }
   },
-  // --- управление просмотром ---
-  // Встать на тик. Назад — пересчёт с начала, поэтому цену стоит показать
-  // заранее: costOf() отвечает, сколько тиков придётся посчитать.
+  // --- playback controls ---
+  // Stand on a tick. Going back means recomputing from the start, so the price
+  // is worth showing in advance: costOf() says how many ticks that will be.
   seek: (t) => scrub.value?.seek(t),
   stepFrames: (n) => scrub.value?.seek((scrub.value.tick || 0) + n),
   costOf: (t) => scrub.value?.costOf(t) ?? 0,
   total: () => scrub.value?.total ?? 0,
-  // Откат доступен только обычному прохождению; в спидране Run откажет сам,
-  // но и кнопки для него интерфейс не покажет.
+  // Rewinding is available only in ordinary play. In a speedrun Run refuses it
+  // itself, and the interface does not offer the button either.
   rollback: (tick) => run.value?.rollback(tick) ?? false,
   canRollback: () => props.mode === PLAY && !props.speedrun,
-  // отцепить камеру от записи и смотреть повтор своими глазами
+  // unhook the camera from the recording and watch the replay with your own eyes
   freeCamera: (on) => { free.value = on },
   run: () => run.value,
   snapshot: () => run.value?.snapshot(),

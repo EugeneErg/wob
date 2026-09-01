@@ -7,6 +7,8 @@ globalThis.localStorage = {
 }
 
 const lib = await import('../src/core/library.js')
+const { seed } = await import('./seed.mjs')
+seed(lib)
 
 // --- встроенное содержимое ---
 const s = lib.stories()[0]

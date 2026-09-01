@@ -41,7 +41,11 @@ const { createSSRApp } = await import('vue')
 const { renderToString } = await import('@vue/server-renderer')
 const lib = await server.ssrLoadModule('/src/core/library.js')
 
-lib.resetLibrary()
+// Библиотека больше не засевает себя встроенным содержимым — оно приходит из
+// каталога, а в сборке его нет. Экранам всё равно нужно что-то рисовать, так
+// что засеваем явно, теми же данными, что раньше лежали в бандле.
+const { seed } = await import('./seed.mjs')
+seed(lib)
 const story = lib.stories()[0]
 const chapter = lib.chaptersOf(story.id)[0]
 const level = lib.level(chapter.nodes[0].levelId)
@@ -50,6 +54,8 @@ const level = lib.level(chapter.nodes[0].levelId)
 // игровом и редакторском — разметка у них разная, и сломаться может любая.
 const screens = [
   ['MainMenu', {}],
+  ['SettingsView', {}],
+  ['AwardsView', {}],
   ['StoryPicker', { mode: 'play' }],
   ['StoryPicker', { mode: 'edit' }],
   ['ChapterList', { mode: 'play', storyId: story.id }],
@@ -57,6 +63,7 @@ const screens = [
   ['ChapterMap', { mode: 'play', chapterId: chapter.id }],
   ['ChapterMap', { mode: 'edit', chapterId: chapter.id }],
   ['RunsView', { kind: 'level', targetId: level.id }],
+  ['RunsView', { kind: 'level', targetId: level.id, releaseId: 'rel-1' }],
   ['GameView', { level }],
   ['GameView', { level, speedrun: true }],
 ]
@@ -90,21 +97,79 @@ const draw = async (path, props) => {
 }
 
 {
+  // The main menu is now built around what the player can do, so it names the
+  // ways of playing outright. Speedrunning used to hide on a small button
+  // inside a story card, where nobody who was not already looking for it ever
+  // found it.
   const html = await draw('/src/views/MainMenu.vue', {})
-  check('в главном меню просто «Играть»', html.includes('Играть') && !html.includes('Спидран'))
+  check('the menu offers all three ways in',
+    html.includes('Play') && html.includes('Speedrun') && html.includes('Create'))
+
+  // Continue is absent rather than disabled when there is nothing to continue:
+  // an empty Continue button is a promise the game cannot keep yet.
+  //
+  // The class is checked rather than the word, because Vue leaves template
+  // comments in the rendered markup and one of them explains this very button.
+  check('nothing to continue on a first visit', !html.includes('resume-label'))
+
+  // Signing in is a menu item like the others, in the same shape as the rest.
+  // It briefly lived on the settings screen, which was the wrong place: it is
+  // something people come here to do, unlike a frame cap.
+  check('signing in is offered on the menu itself', html.includes('Sign in'))
+  check('the sign-in control looks like the other cards', html.includes('class="card"'))
+
+  // Only the frame cap moved. It used to unfold under the menu, putting a
+  // device preference in front of everyone every time they opened the game.
+  check('settings is offered as a place to go', html.includes('Settings'))
+  check('the frame cap is not on the front page', !html.includes('<select'))
+}
+{
+  // The board and your own recordings answer different questions, so they are
+  // two lists rather than one — and on a draft there is no board at all,
+  // because times only compare within one published version.
+  const draft = await draw('/src/views/RunsView.vue', { kind: 'level', targetId: level.id })
+  check('runs screen offers both lists', draft.includes('Leaderboard') && draft.includes('My runs'))
+
+  const released = await draw('/src/views/RunsView.vue', {
+    kind: 'level', targetId: level.id, releaseId: 'rel-1',
+  })
+  check('a released version still offers the board', released.includes('Leaderboard'))
+}
+{
+  // Rendered before the network answers, which is what a player sees first.
+  // The tabs and the list arrive with the data; what must be there immediately
+  // is a screen that explains itself rather than an empty rectangle.
+  const html = await draw('/src/views/AwardsView.vue', {})
+  check('achievements screen has a heading and a way back',
+    html.includes('Achievements') && html.includes('Menu'))
+  check('and says it is working rather than showing nothing', html.includes('Loading'))
+}
+{
+  const html = await draw('/src/views/SettingsView.vue', {})
+  check('settings holds the frame rate', html.includes('Frames per second'))
+  check('settings does not own signing in', !html.includes('Account'))
 }
 {
   const html = await draw('/src/views/StoryPicker.vue', { mode: 'play' })
-  check('у истории выбор: прохождение или спидран',
-    html.includes('Прохождение') && html.includes('Спидран'))
+  check('a story offers both ways of playing',
+    html.includes('Play') && html.includes('Speedrun'))
+}
+{
+  // Arriving through Speedrun must not make the player hunt for it a second
+  // time: the same two options, with the other one led with.
+  const html = await draw('/src/views/StoryPicker.vue', { mode: 'play', intent: 'speedrun' })
+  check('coming in through Speedrun leads with Speedrun',
+    html.includes('sr primary') && html.includes('Play'))
 }
 {
   const html = await draw('/src/views/ChapterList.vue', { mode: 'play', storyId: story.id })
-  check('у главы тоже выбор', html.includes('Прохождение') && html.includes('Спидран'))
+  check('a chapter offers the choice too',
+    html.includes('Play through') && html.includes('Speedrun'))
 }
 {
   const html = await draw('/src/views/ChapterList.vue', { mode: 'play', storyId: story.id, speedrun: true })
-  check('но внутри идущего спидрана главу не переспрашивают', !html.includes('>Спидран<'))
+  check('but inside a running speedrun the chapter is not asked again',
+    !html.includes('>Speedrun<'))
 }
 
 // --- тропы на карте видны и в спидране ---------------------------------------

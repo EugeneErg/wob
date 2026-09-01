@@ -1,9 +1,25 @@
 <template>
-  <MainMenu v-if="at === 'menu'" @go="go" />
+  <p v-if="loadingStory" class="loading">Loading…</p>
+
+  <div v-else-if="storyError" class="loading">
+    <p>Could not load that story: {{ storyError }}</p>
+    <button class="btn" @click="storyError = null">Back</button>
+  </div>
+
+  <MainMenu v-else-if="at === 'menu'" @go="go" @resume="resume" />
+
+  <SettingsView v-else-if="at === 'settings'" @back="at = 'menu'" />
+
+  <AwardsView v-else-if="at === 'awards'" @back="at = 'menu'" />
+
+  <SlotPicker
+    v-else-if="at === 'slots'"
+    :story-id="storyId" @back="at = 'stories'" @play="pickSlot"
+  />
 
   <StoryPicker
     v-else-if="at === 'stories'"
-    :mode="mode" @back="at = 'menu'" @open="openStory"
+    :mode="mode" :intent="intent" @back="at = 'menu'" @open="openStory"
   />
   <ChapterList
     v-else-if="at === 'chapters'"
@@ -30,12 +46,12 @@
 
   <RunsView
     v-else-if="at === 'runs'"
-    :kind="runsKind" :target-id="runsTarget"
+    :kind="runsKind" :target-id="runsTarget" :release-id="releaseId"
     @back="at = runsFrom" @watch="watchRun"
   />
 
-  <!-- Просмотр записи. Попытка главы состоит из нескольких заходов, поэтому
-       здесь она проигрывается сегмент за сегментом: каждый — отдельный мир. -->
+  <!-- Watching a recording. A chapter attempt is several visits to levels, so
+       it is replayed segment by segment: each one is its own world. -->
   <GameView
     v-else-if="at === 'watch'"
     :key="'w' + watching.id + ':' + segIndex"
@@ -49,19 +65,22 @@
     @back="at = 'map'"
   />
 
-  <!-- Итог попытки главы. Показывается поверх карты, когда цепочка закончена. -->
+  <!-- The result of an attempt, shown over the map once the chain is done. -->
   <div v-if="finished" class="verdict">
-    <p class="eyebrow">{{ finished.kind === 'story' ? 'История пройдена' : 'Глава пройдена' }}</p>
+    <p class="eyebrow">{{ finished.kind === 'story' ? 'Story complete' : 'Chapter complete' }}</p>
     <h2>{{ finished.category === '100' ? '100%' : 'any%' }}</h2>
     <p class="time">{{ finished.time }}</p>
-    <p class="sub">заходов на уровни: {{ finished.segments }}</p>
-    <button class="btn primary" @click="finished = null">Хорошо</button>
+    <p class="sub">{{ finished.segments }} level {{ finished.segments === 1 ? 'attempt' : 'attempts' }}</p>
+    <button class="btn primary" @click="finished = null">Nice</button>
   </div>
 </template>
 
 <script setup>
 import { ref, shallowRef, computed } from 'vue'
 import MainMenu from './views/MainMenu.vue'
+import SettingsView from './views/SettingsView.vue'
+import AwardsView from './views/AwardsView.vue'
+import SlotPicker from './views/SlotPicker.vue'
 import StoryPicker from './views/StoryPicker.vue'
 import ChapterList from './views/ChapterList.vue'
 import ChapterMap from './views/ChapterMap.vue'
@@ -78,59 +97,85 @@ import {
 } from './core/chain.js'
 import { levelHash, release, levelFrom, chapterFrom, latestRelease } from './core/releases.js'
 import { saveRun, formatTime, KIND } from './core/replays.js'
+import { remember } from './core/recent.js'
+import { setProgress } from './core/library.js'
+import { loadStory } from './core/catalog.js'
+import { session } from './core/session.js'
+import { reportProgress } from './core/sync.js'
+import { CATEGORY, SCOPE, submitRun } from './core/records.js'
+import { RULES_VERSION } from './core/releases.js'
 
 const at = ref('menu')
 const mode = ref('play')
+// What the player came for: 'play', 'speedrun' or 'create'. Distinct from mode,
+// which only says whether we are editing — the story list uses this to decide
+// which option to put forward.
+const intent = ref('play')
+
+// Fetching a story's content. Shown rather than swallowed: a blank screen while
+// the network is slow reads as a broken game.
+const loadingStory = ref(false)
+const storyError = ref(null)
+
+// Which run is being played. Null for a signed-out visitor, who has no shelf of
+// saves to pick from — and, with one level on offer, nothing to keep on it.
+const slot = ref(null)
+
+// Whether the player pressed Speedrun on the story card. Held while the save
+// menu is in the way, so the choice they made survives the detour.
+const speedrunPending = ref(false)
 const storyId = ref(null)
 const chapterId = ref(null)
 const levelId = ref(null)
 const current = shallowRef(null)
 
-// Идущая попытка. Заводится только для спидрана: спидран — состязание, его
-// меряют одной непрерывной попыткой. Обычное прохождение цепочки не образует
-// вовсе — там можно выйти, вернуться через неделю и продолжить, так что
-// «время попытки» для него не имеет смысла.
+// The attempt in progress. Only speedruns start one: a speedrun is a contest,
+// and a contest is measured as one unbroken attempt. Ordinary play forms no
+// chain at all — you can leave, come back a week later and carry on, so "the
+// time of the attempt" would mean nothing.
 //
-// Обычный ref, а не shallowRef: цепочка растёт по ходу игры, и экраны обязаны
-// это видеть — они рисуют прогресс именно этой попытки, а не общий.
+// A plain ref rather than shallowRef: the chain grows as you play and the
+// screens have to see it, since they draw the progress of THIS attempt rather
+// than the overall one.
 const chain = ref(null)
 
-// На каком уровне вложенности начат спидран: null, 'level', 'chapter', 'story'.
-// Спидран наследуется вниз, обычное прохождение — нет. Поэтому вопрос о режиме
-// задаётся ровно там, где спидран ещё не начат.
+// At which depth the speedrun began: null, 'level', 'chapter', 'story'.
+// A speedrun is inherited downwards, ordinary play is not — which is why the
+// mode is asked about exactly where no speedrun is running yet.
 const srScope = ref(null)
 const speedrun = computed(() => srScope.value !== null)
-// Счётчик заходов: пересоздаёт GameView при повторном входе на тот же уровень,
-// иначе Vue переиспользовал бы компонент и мир остался бы от прошлого захода.
+// Attempt counter: forces a fresh GameView when re-entering the same level.
+// Without it Vue would reuse the component and the world would still be the
+// one from the previous try.
 const attempt = ref(0)
-// Какой выпуск играем. Выпуск — замороженный снимок истории: его уровни
-// больше не изменятся, поэтому записи по нему сравнимы между собой. Если
-// выпусков нет, играется черновик автора, и об этом честно сказано на экране.
+// Which release is being played. A release is a frozen snapshot of a story:
+// its levels will not change again, so runs against it are comparable. With no
+// releases the author's draft is played, and the screen says so plainly.
 const releaseId = ref(null)
 const rel = computed(() => (releaseId.value ? release(releaseId.value) : null))
 
-// Уровень и глава берутся из выпуска, а не из живой библиотеки: играя выпуск,
-// игрок играет именно то, что было выпущено, даже если автор уже правит
-// следующую версию.
+// Level and chapter come from the release rather than the live library: while
+// playing a release you play exactly what was released, even if the author is
+// already editing the next version.
 const lvlOf = (id) => (rel.value ? levelFrom(rel.value, id) : getLevel(id))
 const chapOf = (id) => (rel.value ? chapterFrom(rel.value, id) : getChapter(id))
 
 function pickVersion(id) {
   releaseId.value = id || null
-  chain.value = null      // смена версии обрывает попытку: играли бы уже другое
+  chain.value = null      // switching version ends the attempt: it would be a different game
   srScope.value = null
 }
 
 const finished = ref(null)
 
-// --- просмотр записей --------------------------------------------------------
+// --- watching recordings --------------------------------------------------------
 const runsKind = ref('level')
 const runsTarget = ref(null)
-// Откуда пришли на экран попыток: попытки истории открывают из списка глав,
-// попытки главы и уровня — с карты. Возвращать надо туда же, откуда позвали.
+// Where we came to the runs screen from: story runs are opened from the chapter
+// list, chapter and level runs from the map. Back must lead where we came from.
 const runsFrom = ref('map')
-const watching = shallowRef(null)   // запись, которую смотрим
-const segIndex = ref(0)             // какой заход показываем, если это глава
+const watching = shallowRef(null)   // the recording being watched
+const segIndex = ref(0)             // which visit is showing, when it is a chapter
 const watchLevel = shallowRef(null)
 const watchRecord = shallowRef(null)
 
@@ -169,29 +214,135 @@ function stopWatching() {
   at.value = 'runs'
 }
 
+// The menu asks for one of three things. 'speedrun' is not a separate screen
+// but an intent carried into the story list, so that the timed option is the
+// one offered first there instead of hiding behind a secondary button.
 function go(where) {
-  mode.value = where === 'editor' ? 'edit' : 'play'
+  if (where === 'settings' || where === 'awards') {
+    at.value = where
+
+    return
+  }
+
+  mode.value = where === 'create' ? 'edit' : 'play'
+  intent.value = where
   srScope.value = null
   chain.value = null
   at.value = 'stories'
 }
-// Режим приходит вместе с выбором: игрок нажал «Спидран» на карточке истории,
-// а не «играть, а потом решим». Спидран истории накрывает её главы и уровни.
-function openStory(id, speedrun = false) {
-  storyId.value = id
-  chain.value = null      // при входе в историю режим спрашиваем заново
+
+// Continue. It lands on the chapter map when we know the chapter, and on the
+// chapter list otherwise — never straight into a level, because dropping
+// someone into a puzzle they last saw a week ago with no idea where they are
+// is disorienting rather than convenient.
+async function resume(spot) {
+  mode.value = 'play'
+  intent.value = 'play'
   srScope.value = null
-  // По умолчанию предлагаем последний выпуск: играть свежее выпущенное —
-  // разумное умолчание, а черновик автора можно выбрать явно.
+  chain.value = null
+
+  // Continue is the one entry that skips the story list entirely, so it is the
+  // one most likely to arrive with nothing loaded.
+  loadingStory.value = true
+
+  try {
+    await loadStory(spot.storyId)
+  } catch (e) {
+    loadingStory.value = false
+    storyError.value = e.message
+
+    return
+  }
+
+  loadingStory.value = false
+  storyId.value = spot.storyId
+  releaseId.value = latestRelease(spot.storyId)?.id || null
+
+  if (spot.chapterId) {
+    chapterId.value = spot.chapterId
+    at.value = 'map'
+  } else {
+    at.value = 'chapters'
+  }
+}
+// The mode arrives with the choice: the player pressed "Speedrun" on a story
+// card, not "play and decide later". A story speedrun covers its chapters and
+// levels, so they will not ask again.
+async function openStory(id, speedrun = false) {
+  // The content may not be here yet — resuming from a bookmark, or arriving at
+  // a story the shelf listed but never fetched in full. Asking the catalogue
+  // again is cheap (a release is frozen, so the answer cannot have changed) and
+  // it is the difference between a chapter list and an empty screen.
+  if (mode.value === 'play') {
+    loadingStory.value = true
+
+    try {
+      await loadStory(id)
+    } catch (e) {
+      loadingStory.value = false
+      storyError.value = e.message
+
+      return
+    }
+
+    loadingStory.value = false
+  }
+
+  storyId.value = id
+  remember({ storyId: id, chapterId: null })
+  chain.value = null      // entering a story asks about the mode again
+  srScope.value = null
+  slot.value = null
+
+  // Signed in, a story is entered through its save menu: which run is this?
+  // Signed out there is nothing to choose between, so the question is not
+  // asked.
+  if (mode.value === 'play' && session.status === 'signed-in') {
+    releaseId.value = latestRelease(id)?.id || null
+    speedrunPending.value = speedrun
+    at.value = 'slots'
+
+    return
+  }
+  // Default to the latest release: playing the most recent published version is
+  // the sensible default, and the author's draft can still be chosen explicitly.
   releaseId.value = mode.value === 'play' ? (latestRelease(id)?.id || null) : null
   if (speedrun) startStory(true)
   at.value = 'chapters'
 }
 
-// Игрок выбрал проходить историю целиком. Дальше это одна попытка: время
-// общее, главы внутри режим уже не спрашивают — он выбран здесь.
+// The player chose to take the story as a whole. From here it is one attempt:
+// the time is shared, and chapters inside no longer ask about the mode — it was
+// decided here.
+// A run was chosen from the save menu. Its finished levels become the progress
+// this session plays against — which is what makes a second run start empty
+// while the first keeps its place.
+function pickSlot(chosen) {
+  slot.value = chosen
+  adoptSlotProgress(chosen)
+
+  if (speedrunPending.value) {
+    speedrunPending.value = false
+    startStory(true)
+  }
+
+  at.value = 'chapters'
+}
+
+/**
+ * Make this run's progress the progress the screens read.
+ *
+ * The maps and the unlock rules all ask library.js what has been finished, and
+ * that answer has to change when the run does — otherwise picking a fresh slot
+ * would show a story already beaten. Replacing rather than merging is the
+ * point: a second run is supposed to start empty.
+ */
+function adoptSlotProgress(chosen) {
+  setProgress(chosen.completed || [])
+}
+
 function startStory(sr) {
-  if (!sr) { srScope.value = null; chain.value = null; return }   // просто играем
+  if (!sr) { srScope.value = null; chain.value = null; return }   // just playing
   srScope.value = 'story'
   chain.value = new ChainRun({ kind: KIND.STORY, targetId: storyId.value })
 }
@@ -203,8 +354,10 @@ async function leaveStory() {
 }
 function openChapter(id, speedrun = false) {
   chapterId.value = id
-  // Внутри попытки истории цепочка продолжается — она общая на всю историю.
-  // Если попытки нет, глава спросит режим сама и заведёт свою.
+  remember({ storyId: storyId.value, chapterId: id })
+  // Inside a story attempt the chain carries on — it belongs to the whole
+  // story. With no attempt running, the chapter asks about the mode itself and
+  // starts one of its own.
   if (chain.value?.kind !== KIND.STORY) {
     chain.value = null
     if (srScope.value !== 'story') srScope.value = null
@@ -212,8 +365,9 @@ function openChapter(id, speedrun = false) {
   at.value = 'map'
 }
 
-// Игрок выбрал, как проходить главу. С этого мгновения идёт попытка: её время
-// складывается из времени уровней, а карта показывает прогресс этой попытки.
+// The player chose how to take the chapter. From this moment an attempt is
+// running: its time is the sum of the levels, and the map shows the progress of
+// that attempt.
 function startChapter(sr) {
   if (!sr) { srScope.value = null; chain.value = null; return }
   srScope.value = 'chapter'
@@ -221,9 +375,10 @@ function startChapter(sr) {
 }
 
 async function leaveChapter() {
-  // Возврат к списку глав. Попытку истории он не обрывает: игрок просто вышел
-  // из главы, чтобы выбрать следующую, — это часть прохождения истории.
-  // А попытку одной главы обрывает: она вся была про эту главу.
+  // Back to the chapter list. This does not end a story attempt: the player
+  // simply stepped out of a chapter to pick the next one, which is part of
+  // playing the story. It does end a chapter attempt, which was all about that
+  // one chapter.
   if (chain.value?.kind !== KIND.STORY) {
     await abandon()
     if (srScope.value !== 'story') srScope.value = null
@@ -231,15 +386,15 @@ async function leaveChapter() {
   at.value = 'chapters'
 }
 
-// Брошенная попытка тоже записывается.
+// An abandoned attempt is recorded too.
 //
-// Раньше она просто исчезала, и это было неверно: неудачный прогон — самое
-// интересное для разбора. Спидранер хочет посмотреть, где именно развалилась
-// попытка, а не только те, что дошли до конца.
+// It used to simply vanish, which was wrong: a failed run is the interesting
+// one to study. A speedrunner wants to see exactly where the attempt fell
+// apart, not only the ones that made it to the end.
 //
-// В зачёт она при этом не идёт: finished остаётся ложным, потому что категории
-// нет, а отбор лучших смотрит именно на него. В списке попыток такие помечены
-// как непройденные и стоят после пройденных.
+// It does not count, though: finished stays false because there is no category,
+// and picking the best looks at exactly that. In the runs list these are marked
+// unfinished and sorted after the finished ones.
 async function abandon() {
   const run = chain.value
   chain.value = null
@@ -249,34 +404,38 @@ async function abandon() {
     targetId: run.targetId,
     releaseId: releaseId.value,
     speedrun: speedrun.value,
-    category: null,       // до конца не дошли — зачёта нет
+    category: null,       // never reached the end, so nothing to score
   })
 }
 
-// Режим уровня тоже приходит с выбором — из меню точки на карте. Отдельного
-// экрана с вопросом больше нет: решение и вход стали одним действием.
+// A level's mode arrives with the choice too, from the menu on its map node.
+// There is no separate screen asking any more: deciding and entering became one
+// action.
 function play(id, speedrun = false) {
   levelId.value = id
   current.value = lvlOf(id)
   attempt.value++
-  // Внутри идущего спидрана уровень его часть, и своей области не заводит.
+  // Inside a running speedrun the level is part of it and starts no scope of
+  // its own.
   if (!srScope.value) srScope.value = speedrun ? 'level' : null
   at.value = 'game'
 }
 function editLevel(id) { levelId.value = id; at.value = 'level' }
 
-// Заход на уровень закончился — кладём сегмент в цепочку и возвращаемся
-// на карту. Неудачный заход тоже сегмент: время он занял.
+// A visit to a level ended: push the segment into the chain and go back to the
+// map. A failed visit is a segment too — it took time.
 async function onSegment(snapshot) {
   const run = chain.value
   at.value = 'map'
-  // Спидран отдельного уровня цепочки не образует: запись уровня и есть вся
-  // попытка, её сохранил сам GameView. Возвращать область в null здесь же,
-  // иначе следующий уровень унаследовал бы чужой выбор.
+  reportProgress(storyId.value, levelId.value, slot.value?.id)
+  // A single-level speedrun forms no chain: the level's recording IS the whole
+  // attempt, and GameView saved it. The scope is cleared right here, or the
+  // next level would inherit a choice that was not made for it.
   if (srScope.value === 'level') srScope.value = null
   if (!run) return
-  // Сегмент помнит и уровень, и главу: без главы попытку истории не разложить
-  // по главам, а без этого не посчитать ни доступность, ни проценты.
+  // A segment remembers both the level and the chapter: without the chapter a
+  // story attempt cannot be broken down by chapter, and without that there is
+  // no working out what is unlocked or what the percentage is.
   run.push(snapshot, {
     levelId: levelId.value,
     chapterId: chapterId.value,
@@ -287,7 +446,7 @@ async function onSegment(snapshot) {
   if (done) { chain.value = null; srScope.value = null }
 }
 
-// Глава дошла до конца — записываем попытку главы.
+// The chapter reached its end, so the chapter attempt is recorded.
 async function checkChapter(run) {
   const ch = chapOf(chapterId.value)
   const cat = ch ? categoryOf(ch, run.done) : null
@@ -296,8 +455,41 @@ async function checkChapter(run) {
   return true
 }
 
-// История дошла до конца. Считается по главам: пройдена финальная глава —
-// any%, пройдены все главы целиком — 100%.
+/**
+ * Offer a finished chapter or story run to its leaderboard.
+ *
+ * Levels were being submitted and these were not, so the chapter and story
+ * boards existed with nothing able to fill them.
+ *
+ * Only speedruns go up. An ordinary playthrough can be left and resumed a week
+ * later, so its elapsed time measures nothing anyone would want to compare —
+ * which is exactly the distinction the mode already draws everywhere else.
+ */
+async function publishChainRun(snap, scope, cat) {
+  if (!speedrun.value || !releaseId.value || session.status !== 'signed-in') return
+
+  try {
+    await submitRun(releaseId.value, {
+      scope: scope.kind === KIND.STORY ? SCOPE.STORY : SCOPE.CHAPTER,
+      target: scope.kind === KIND.STORY ? null : scope.targetId,
+      category: cat === '100' ? CATEGORY.HUNDRED : CATEGORY.ANY,
+      ticks: snap.ticks,
+      seed: snap.segments?.[0]?.seed ?? 0,
+      rulesVersion: RULES_VERSION,
+      // A chain run is several visits to levels, so its input is the segments
+      // rather than one flat log. The verifier replays them in order.
+      input: [],
+      segments: snap.segments,
+    })
+  } catch {
+    // The run is safe locally either way, and the player has a result panel in
+    // front of them — a leaderboard that could not be reached is not their
+    // problem to solve at that moment.
+  }
+}
+
+// The story reached its end. Judged by chapters: the final chapter finished is
+// any%, every chapter finished in full is 100%.
 async function checkStory(run) {
   const st = rel.value ? rel.value.story : getStory(storyId.value)
   if (!st) return false
@@ -311,6 +503,7 @@ async function checkStory(run) {
 async function finish(run, scope, cat) {
   const snap = run.snapshot()
   await saveRun(snap, { ...scope, releaseId: releaseId.value, speedrun: speedrun.value })
+  await publishChainRun(snap, scope, cat)
   finished.value = {
     kind: scope.kind,
     category: cat,
@@ -322,6 +515,12 @@ async function finish(run, scope, cat) {
 </script>
 
 <style scoped>
+.loading {
+  position: absolute; inset: 0; display: flex;
+  flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  color: var(--muted); font-size: 14px; background: var(--ink);
+}
+
 .verdict {
   position: fixed; inset: auto 0 0 0; margin: auto; bottom: 14%;
   width: max-content; text-align: center; z-index: 10;

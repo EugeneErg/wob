@@ -1,28 +1,28 @@
 <template>
   <div class="screen">
     <header class="bar">
-      <button class="btn ghost small" @click="$emit('back')">← Главы</button>
+      <button class="btn ghost small" @click="$emit('back')">← Chapters</button>
       <h2>{{ ch?.title }}</h2>
       <template v-if="mode === 'edit'">
-        <button class="btn small" @click="hotOpen = !hotOpen">Горячие ассеты</button>
-        <button class="btn small" @click="pic">Картинка</button>
-        <button class="btn small primary" @click="addLevel">Новый уровень</button>
+        <button class="btn small" @click="hotOpen = !hotOpen">Pinned assets</button>
+        <button class="btn small" @click="pic">Image</button>
+        <button class="btn small primary" @click="addLevel">New level</button>
       </template>
       <template v-else>
         <span class="counter">{{ passed }} / {{ nodes.length }}</span>
-        <!-- Часы попытки. Идут только внутри уровней: карта тиков не даёт,
-             поэтому выбор ветки и раздумья времени не стоят. -->
+        <!-- The attempt clock. It only runs inside levels: the map produces no
+             ticks, so choosing a branch and thinking cost nothing. -->
         <span v-if="run" class="igt" :class="{ sr: speedrun }">
-          {{ igt }}<i>{{ inStory ? 'история целиком' : speedrun ? 'спидран' : 'прохождение' }}</i>
+          {{ igt }}<i>{{ inStory ? 'whole story' : speedrun ? 'speedrun' : 'playthrough' }}</i>
         </span>
         <button class="btn small" @click="$emit('runs', { kind: 'chapter', targetId: chapterId })">
-          Попытки главы
+          Chapter runs
         </button>
       </template>
     </header>
 
     <section v-if="hotOpen && mode === 'edit'" class="hot">
-      <p class="note">Отмеченные поднимутся наверх списка редактора во всех уровнях этой главы.</p>
+      <p class="note">Pinned assets rise to the top of the editor list in every level of this chapter.</p>
       <button
         v-for="a in allAssets" :key="a.id"
         class="chip" :class="{ on: isHot(a.id) }"
@@ -30,9 +30,9 @@
       >{{ a.title }}</button>
     </section>
 
-    <!-- Выбор режима. Спидран отличается тем, что открыто ровно то, что
-         открыто в этой попытке: начать с середины по старому сохранению нельзя,
-         и откатов внутри уровня тоже нет. -->
+    <!-- Choosing the mode. What sets a speedrun apart is that only what this
+         attempt has opened is open: no starting from the middle on an old save,
+         and no rewinding inside a level either. -->
     <div class="map-wrap">
       <div
         ref="map" class="map" :style="coverStyle(ch?.image)"
@@ -58,7 +58,7 @@
           <span class="cap">{{ name(n.levelId) }}<span v-if="n.next" class="arrow">→ {{ chapterName(n.next) }}</span></span>
         </button>
 
-        <!-- меню у самой точки -->
+        <!-- the menu next to the node itself -->
         <div
           v-if="mode === 'edit' && selectedNode"
           class="menu"
@@ -66,25 +66,26 @@
           @pointerdown.stop @click.stop
         >
           <div class="menu-head">{{ selected?.name }}</div>
-          <button class="item" @click="$emit('edit', sel)">Редактировать</button>
-          <button class="item" @click="copy">Сделать копию</button>
-          <button class="item danger" @click="drop">Удалить уровень</button>
+          <button class="item" @click="$emit('edit', sel)">Edit</button>
+          <button class="item" @click="copy">Duplicate</button>
+          <button class="item danger" @click="drop">Delete level</button>
 
-          <!-- Куда ведёт глава, если игрок вышел через этот уровень.
-               Привязка и делает узел выходом: без неё узел без троп — тупик,
-               и прохождение через него главу не засчитывает. -->
+          <!-- Where the chapter leads if the player left through this level.
+               The link is what makes a node an exit: without it a node with no
+               paths out is a dead end, and finishing it does not complete the
+               chapter. -->
           <label class="menu-field">
-            <span>Дальше — глава</span>
+            <span>Leads on to</span>
             <select :value="selectedNode?.next || ''" @change="setNext($event.target.value)">
-              <option value="">— нет, это не выход —</option>
+              <option value="">— not an exit —</option>
               <option v-for="c in otherChapters" :key="c.id" :value="c.id">{{ c.title }}</option>
             </select>
           </label>
-          <div class="menu-note">Shift+клик по другой точке — тропинка</div>
+          <div class="menu-note">Shift-click another node to draw a path</div>
         </div>
 
-        <!-- В игре у точки тоже есть меню, но одно: посмотреть свои попытки
-             на этом уровне. Клик по самой точке по-прежнему запускает уровень. -->
+        <!-- While playing, a node has a menu too, but only one entry: your own
+             runs on this level. Clicking the node still starts it. -->
         <div
           v-if="mode === 'play' && selectedNode"
           class="menu"
@@ -92,30 +93,31 @@
           @pointerdown.stop @click.stop
         >
           <div class="menu-head">{{ selected?.name }}</div>
-          <!-- Режим выбирается здесь же. Если спидран уже идёт сверху, выбора
-               нет: уровень часть той попытки, и решать за неё нечего. -->
+          <!-- The mode is chosen here too. With a speedrun already running
+               above, there is no choice: the level is part of that attempt and
+               there is nothing to decide for it. -->
           <template v-if="speedrun">
-            <button class="item" @click="startLevel(sel, false)">Продолжить попытку</button>
+            <button class="item" @click="startLevel(sel, false)">Continue the run</button>
           </template>
           <template v-else>
-            <button class="item" @click="startLevel(sel, false)">Прохождение</button>
-            <button class="item sr" @click="startLevel(sel, true)">Спидран уровня</button>
+            <button class="item" @click="startLevel(sel, false)">Play through</button>
+            <button class="item sr" @click="startLevel(sel, true)">Speedrun this level</button>
           </template>
-          <button class="item" @click="$emit('runs', { kind: 'level', targetId: sel })">Мои попытки</button>
+          <button class="item" @click="$emit('runs', { kind: 'level', targetId: sel })">My runs</button>
         </div>
 
         <p v-if="!nodes.length" class="empty">
-          {{ mode === 'edit' ? 'Пока пусто — добавьте первый уровень.' : 'В этой главе ещё нет уровней.' }}
+          {{ mode === 'edit' ? 'Empty so far — add the first level.' : 'This chapter has no levels yet.' }}
         </p>
       </div>
 
       <p v-if="mode === 'edit' && routingNeeded" class="alarm">
-        В главе несколько концов ({{ dead.join(', ') }}), но ни один никуда не ведёт.
-        Пока так, глава не засчитывается пройденной: непонятно, какой конец настоящий,
-        а какой — боковой тупик. Привяжите к нужному узлу следующую главу.
+        This chapter has several endings ({{ dead.join(', ') }}) and none of them leads anywhere.
+        While that holds, the chapter never counts as finished: there is no telling which ending is
+        the real one and which is a side branch. Link the next chapter to the node you mean.
       </p>
       <p v-else-if="mode === 'edit' && dead.length" class="note-dead">
-        Тупики (проходятся, но главу не завершают): {{ dead.join(', ') }}
+        Dead ends (playable, but they do not complete the chapter): {{ dead.join(', ') }}
       </p>
 
       <p class="hint">{{ hint }}</p>
@@ -126,6 +128,8 @@
 <script setup>
 import { ref, computed } from 'vue'
 import * as lib from '../core/library.js'
+import { createLevel, deleteLevel, saveChapterMap } from '../core/authoring.js'
+import { session } from '../core/session.js'
 import { pickImage, coverStyle } from '../core/fileio.js'
 import { shouldAsk } from '../core/modes.js'
 import { deadEnds, needsRouting, openNodes } from '../core/chain.js'
@@ -134,28 +138,30 @@ import { formatTime } from '../core/replays.js'
 const props = defineProps({
   mode: { type: String, default: 'play' },
   chapterId: String,
-  // Идущая попытка главы (ChainRun) — если её нет, сначала спрашиваем режим
+  // The chapter attempt in progress (ChainRun). Without one, the mode is asked first
   run: { type: Object, default: null },
   speedrun: { type: Boolean, default: false },
-  // где начат спидран: null | 'story' | 'chapter' | 'level'
+  // where the speedrun began: null | 'story' | 'chapter' | 'level'
   srScope: { type: String, default: null },
-  // Глава открыта внутри прохождения истории
+  // The chapter was opened inside a story playthrough
   inStory: { type: Boolean, default: false },
-  // Выпуск, если играется он: имена уровней и состав главы берутся оттуда
+  // The release, when one is being played: level names and the chapter's
+  // contents come from it
   release: { type: Object, default: null },
 })
 const emit = defineEmits(['back', 'play', 'edit', 'start', 'runs'])
 
-// ref разворачивает объект главы в реактивный прокси: правки узлов сразу видны,
-// а пишутся они в тот же объект библиотеки, который потом сохраняется.
-// Раньше здесь был computed, он возвращал один и тот же объект — Vue считал,
-// что ничего не изменилось, и карта не перерисовывалась до перезагрузки.
+// ref wraps the chapter in a reactive proxy: edits to nodes show up at once and
+// are written into the same library object that gets saved later.
+//
+// This used to be a computed, which returned the same object every time — Vue
+// concluded nothing had changed and the map did not redraw until a reload.
 const fromRelease = (id) => props.release?.chapters.find((c) => c.id === id) || null
 const levelOf = (id) => props.release?.levels.find((l) => l.id === id) || lib.level(id)
 const ch = ref(fromRelease(props.chapterId) || lib.chapter(props.chapterId))
 const tick = ref(0)
-// tick нужен там, где библиотека правит объект напрямую, мимо прокси:
-// новый массив на каждое изменение — иначе Vue не увидит разницы
+// tick is for the places where the library edits the object directly, past the
+// proxy: a new array on every change, or Vue sees no difference
 const nodes = computed(() => (tick.value, [...(ch.value?.nodes || [])]))
 const map = ref(null)
 const sel = ref(null)
@@ -166,11 +172,12 @@ const allAssets = computed(() => lib.assets())
 const isHot = (id) => lib.isHot('chapter', props.chapterId, id)
 const toggleHot = (id) => { lib.toggleHot('chapter', props.chapterId, id); tick.value++ }
 
-// Что считать пройденным. В спидране — только то, что пройдено в этой
-// попытке: прошлые заслуги не открывают дорогу, иначе главу можно было бы
-// начать с середины. В обычном прохождении — общий прогресс, как раньше.
-// В попытке истории засчитываем только те заходы, что относятся к этой главе:
-// у попытки внутри лежат сегменты всех глав сразу.
+// What counts as finished. In a speedrun, only what was finished in THIS
+// attempt: past achievements open no doors, or the chapter could be started
+// from the middle. In ordinary play, the overall progress as before.
+//
+// Within a story attempt only the visits belonging to this chapter count: the
+// attempt holds segments from every chapter at once.
 const doneSet = computed(() => {
   tick.value
   const r = props.run
@@ -202,15 +209,15 @@ const menuStyle = computed(() => {
 })
 
 const pos = (levelId) => nodes.value.find((n) => n.levelId === levelId) || { x: 50, y: 50 }
-// Тропа видна, когда пройден уровень, из которого она ведёт. В идущей попытке
-// это считается по её собственному прогрессу: в спидране общий прогресс не
-// пишется вовсе, и по нему все тропы оказывались невидимыми — карта выглядела
-// набором несвязанных точек.
+// A path is visible once the level it leads from is finished. Within a running
+// attempt this is judged by that attempt's own progress: a speedrun writes no
+// overall progress at all, so going by that made every path invisible and the
+// map looked like a scatter of unconnected dots.
 const visible = (e) => (doneSet.value ? doneSet.value.has(e.from) : lib.edgeVisible(e))
 const shownEdges = computed(() =>
   (ch.value?.edges || []).filter((e) => props.mode === 'edit' || visible(e)))
-// Какие узлы открыты. Правило одно и то же, но считается по прогрессу той
-// попытки, которая идёт, а не по общему сохранению.
+// Which nodes are open. The same rule either way, but judged by the progress of
+// the attempt in progress rather than by the overall save.
 const openSet = computed(() =>
   (tick.value, doneSet.value && ch.value ? new Set(openNodes(ch.value, doneSet.value)) : null))
 const isLocked = (n) => {
@@ -220,15 +227,16 @@ const isLocked = (n) => {
 }
 
 const hint = computed(() => {
-  if (props.mode === 'play') return 'Открытые уровни горят ярче. Клик — играть, долгое нажатие — меню с записями попыток.'
-  return 'Клик по точке — меню уровня, двойной клик — открыть его сразу, перетаскивание — подвинуть, Shift+клик по второй точке — тропинка.'
+  if (props.mode === 'play') return 'Open levels glow brighter. Click to play, press and hold for the menu with recorded runs.'
+  return 'Click a node for its menu, double-click to open it, drag to move it, shift-click a second node to draw a path.'
 })
 
-// Клик по точке разбираем сами: карта захватывает указатель ради перетаскивания,
-// а вместе с ним и событие click — до кнопки оно уже не доходит.
+// Clicks on a node are worked out by hand: the map captures the pointer in
+// order to drag, and the click event goes with it — it never reaches the
+// button.
 function onDown(n, e) {
   drag = { n, moved: 0, shift: e.shiftKey, at: Date.now(), long: false }
-  // Долгое нажатие — то же, что правый клик, но работает пальцем.
+  // Press and hold is the same as a right click, but works with a finger.
   if (props.mode === 'play') {
     const d = drag
     setTimeout(() => { if (drag === d) d.long = true }, 450)
@@ -253,19 +261,20 @@ function onUp() {
   const d = drag
   drag = null
   if (!d) return
-  const click = d.moved < 3          // почти не двигали — считаем кликом
+  const click = d.moved < 3          // barely moved, so treat it as a click
 
   if (d.empty) { if (click) sel.value = null; return }
   if (props.mode !== 'edit') {
     if (!click) return
     if (isLocked(d.n)) return
-    // В идущем спидране режим выбран выше — запускаем сразу, одним касанием.
-    // Иначе открываем меню: прохождение или спидран уровня, плюс записи.
+    // Inside a running speedrun the mode was chosen above, so start straight
+    // away in one tap. Otherwise open the menu: play through or speedrun this
+    // level, plus the recordings.
     if (props.speedrun) { emit('play', d.n.levelId, false); return }
     sel.value = sel.value === d.n.levelId ? null : d.n.levelId
     return
   }
-  if (!click) { lib.save(); return }
+  if (!click) { lib.save(); pushMap(); return }
   if (d.shift && sel.value && sel.value !== d.n.levelId) link(sel.value, d.n.levelId)
   else sel.value = d.n.levelId
 }
@@ -275,24 +284,40 @@ function link(a, b) {
   const i = edges.findIndex((e) => (e.from === a && e.to === b) || (e.from === b && e.to === a))
   if (i >= 0) edges.splice(i, 1)
   else edges.push({ from: a, to: b })
-  lib.save(); tick.value++
+  lib.save(); pushMap(); tick.value++
 }
 
 function addLevel() {
   const l = lib.createLevel(props.chapterId)
   tick.value++
+
+  // Created on the server before the author has drawn anything in it, so an
+  // empty level is the most that a lost tab can cost.
+  if (session.status === 'signed-in') {
+    const node = (ch.value.nodes || []).find((n) => n.levelId === l.id)
+    createLevel(storyId.value, props.chapterId, l, node)
+  }
+
   emit('edit', l.id)
 }
 function copy() {
-  lib.copyLevel(props.chapterId, sel.value)
+  const made = lib.copyLevel(props.chapterId, sel.value)
   tick.value++
+
+  if (session.status === 'signed-in' && made) {
+    const node = (ch.value.nodes || []).find((n) => n.levelId === made.id)
+    createLevel(storyId.value, props.chapterId, made, node)
+    // A copy has contents from the moment it exists, so the map entry alone
+    // would not be enough to reconstruct it.
+    pushMap()
+  }
 }
 function drop() {
   const l = selected.value
-  if (l && confirm(`Удалить уровень «${l.name}»?`)) { lib.removeLevel(props.chapterId, l.id); sel.value = null; tick.value++ }
+  if (l && confirm(`Delete "${l.name}"?`)) { lib.removeLevel(props.chapterId, l.id); sel.value = null; tick.value++ }
 }
-// Другие главы этой истории — куда можно вывести. Сама себя глава в список
-// не берёт: выход в самого себя это не выход, а петля.
+// The other chapters of this story, as places to lead on to. A chapter leaves
+// itself out: an exit into itself is not an exit, it is a loop.
 const otherChapters = computed(() =>
   (tick.value, lib.chaptersOf(ch.value?.storyId).filter((c) => c.id !== props.chapterId)))
 
@@ -301,12 +326,12 @@ function setNext(chapterId) {
   if (!n) return
   if (chapterId) n.next = chapterId
   else delete n.next
-  lib.save(); tick.value++
+  lib.save(); pushMap(); tick.value++
 }
 
-// Тупики — узлы, из которых некуда идти и к которым не привязано продолжение.
-// Пока концов несколько и ни один не привязан, глава вообще не засчитывается:
-// какой из них настоящий, знает только автор.
+// Dead ends: nodes with nowhere to go and nothing linked to follow them. While
+// there are several endings and none is linked, the chapter never counts as
+// finished — only the author knows which one is the real ending.
 const names = (ids) => ids.map((id) => levelOf(id)?.name || id)
 const dead = computed(() => (tick.value, ch.value ? names(deadEnds(ch.value)) : []))
 const routingNeeded = computed(() => (tick.value, ch.value ? needsRouting(ch.value) : false))
