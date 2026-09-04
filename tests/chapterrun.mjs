@@ -1,25 +1,28 @@
 // Прохождение главы: сумма времени, развилки, проценты.
-import { ChainRun, exitNodes, deadEnds, isAnyPercent, isFullPercent, categoryOf, percentOf, openNodes, needsRouting, nextChapterOf } from '../src/core/chain.js'
+import { ChainRun, exitNodes, endingNodes, isAnyPercent, isFullPercent, categoryOf, percentOf, openNodes, nextChapterOf } from '../src/core/chain.js'
 import { KIND, CATEGORY, formatTime } from '../src/core/replays.js'
 import { check } from './assert.mjs'
 
 // Глава с развилкой: старт → (лево | право) → общий финал.
 //   a → b → d
 //   a → c → d
-// плюс тупиковая ветка e, до которой можно дойти, но она никуда не ведёт.
+// плюс короткая ветка e, до которой можно дойти сразу.
 const ch = {
   id: 'ch1',
-  nodes: [{ levelId: 'a' }, { levelId: 'b' }, { levelId: 'c' }, { levelId: 'd' }, { levelId: 'e' }],
-  edges: [
-    { from: 'a', to: 'b' }, { from: 'a', to: 'c' },
-    { from: 'b', to: 'd' }, { from: 'c', to: 'd' },
-    { from: 'a', to: 'e' },
+  nodes: [
+    { id: 'nd-a', levelId: 'a', next: ['nd-b', 'nd-c', 'nd-e'] },
+    { id: 'nd-b', levelId: 'b', next: ['nd-d'] },
+    { id: 'nd-c', levelId: 'c', next: ['nd-d'] },
+    { id: 'nd-d', levelId: 'd', next: [] },
+    { id: 'nd-e', levelId: 'e', next: [] },
   ],
 }
 
-console.log('без привязки продолжения — выходов нет:', exitNodes(ch).length === 0)
-console.log('тупики:', deadEnds(ch).join(', '), '(d и e неотличимы: из обоих тропы не ведут)')
-console.log('главе нужна рука автора:', needsRouting(ch))
+console.log('связи наружу не ведут — выходов нет:', exitNodes(ch).length === 0)
+console.log('финалы:', endingNodes(ch).join(', '))
+// d и e оба финальны: связей из них нет. Это и есть принятое правило, и это же
+// его цена — короткая ветка e засчитывается наравне с честным маршрутом.
+console.log('  их два, и различить их по графу нельзя:', endingNodes(ch).length === 2)
 
 // --- прогон 1: игрок берёт левую ветку и бежит в финал -----------------------
 const seg = (ticks, finished = true) => ({ ticks, finished, seed: 1, rate: 60, input: [], camera: [], checks: [] })
@@ -35,7 +38,8 @@ console.log('  заходов на b:', any.attempts('b'), '(один прова
 console.log('  время:', formatTime(any.ticks), `= ${any.ticks} тиков`)
 check('проваленный заход учтён во времени', any.ticks === 300 + 180 + 240 + 420)
 console.log('  пройдено:', percentOf(ch, any.done) + '%')
-check('без привязки продолжения зачёта нет', categoryOf(ch, any.done) === null)
+// d — финал: связей из него нет. Дойти до него и есть пройти главу.
+check('дошли до финала — есть зачёт any%', categoryOf(ch, any.done) === CATEGORY.ANY)
 console.log('  any% =', isAnyPercent(ch, any.done), ', 100% =', isFullPercent(ch, any.done))
 
 // --- прогон 2: игрок обходит все ветки --------------------------------------
@@ -58,8 +62,8 @@ console.log('  но время записано:', formatTime(quit.ticks))
 // --- какие уровни открыты по ходу попытки ------------------------------------
 console.log('\n— маршрут')
 console.log('  в начале открыт:', openNodes(ch, new Set()).join(', '))
-console.log('  после a открыты:', openNodes(ch, new Set(['a'])).join(', '), '(развилка: три ветки на выбор)')
-console.log('  после a и b:', openNodes(ch, new Set(['a', 'b'])).join(', '))
+console.log('  после a открыты:', openNodes(ch, new Set(['nd-a'])).join(', '), '(развилка: три ветки на выбор)')
+console.log('  после a и b:', openNodes(ch, new Set(['nd-a', 'nd-b'])).join(', '))
 
 // --- время на карте в игровое не идёт ----------------------------------------
 // Между сегментами тиков нет вовсе, поэтому сумма не зависит от того,
@@ -74,36 +78,36 @@ console.log('  RTA:', (slow.rta / 1000).toFixed(0) + ' с — вместе с к
 check('IGT не зависит от времени на карте', slow.ticks === 720)
 
 
-// --- дыра: тупиковая ветка засчитывается как прохождение ---------------------
-// e — боковой тупик, не финал главы. Но тропы из него не ведут, значит по
-// нынешнему правилу «конец = узел без исходящих троп» он тоже конец, и дойти
-// до него достаточно для any%. Это неверно: игрок свернул в сторону и не
-// прошёл главу. Граф сам по себе не отличает настоящий финал от тупика —
-// это должен сказать автор.
-const cheat = new ChainRun({ kind: KIND.CHAPTER, targetId: 'ch1' })
-cheat.push(seg(300), { levelId: 'a' })
-cheat.push(seg(120), { levelId: 'e' })
-console.log('\n— тупик вместо финала')
-console.log('  пройдено:', percentOf(ch, cheat.done) + '%')
-check('тупик зачёта не даёт', categoryOf(ch, cheat.done) === null)
-console.log('  и честный прогон тоже без зачёта:', categoryOf(ch, any.done))
+// --- короткая ветка засчитывается, и это осознанно ---------------------------
+// e — боковая ветка, не задуманный финал главы. Но связей из неё не ведёт,
+// значит по принятому правилу «финал = точка без исходящих связей» она финал,
+// и дойти до неё достаточно для any%.
+//
+// Раньше это считалось дырой, и её закрывала привязка узла к следующей главе:
+// она несла смысл «глава кончилась здесь». Привязок больше нет — связи идут от
+// точки к точке, — поэтому граф действительно не отличает задуманный конец от
+// недорисованной ветки, и правило принято вместе с этой ценой.
+//
+// Прикрывает теперь редактор: финальные точки на карте выделены, и автор видит
+// незакрытую ветку сразу.
+const short = new ChainRun({ kind: KIND.CHAPTER, targetId: 'ch1' })
+short.push(seg(300), { levelId: 'a' })
+short.push(seg(120), { levelId: 'e' })
+console.log('\n— короткая ветка')
+console.log('  пройдено:', percentOf(ch, short.done) + '%')
+check('короткая ветка засчитана как any%', categoryOf(ch, short.done) === CATEGORY.ANY)
+check('честный маршрут засчитан так же', categoryOf(ch, any.done) === CATEGORY.ANY)
+check('все ветки — это 100%', categoryOf(ch, full.done) === CATEGORY.FULL)
 
-// Автор привязал к d следующую главу — d стал выходом, e остался тупиком
-const routed = { ...ch, nodes: ch.nodes.map((n) => (n.levelId === 'd' ? { ...n, next: 'ch2' } : n)) }
-console.log('\n— после привязки следующей главы к d')
-console.log('  выходы главы:', exitNodes(routed).join(', '), '| тупики:', deadEnds(routed).join(', '))
-check('честный прогон засчитан как any%', categoryOf(routed, any.done) === 'any')
-check('и после привязки тупик по-прежнему не засчитывается', categoryOf(routed, cheat.done) === null)
-console.log('  все ветки:', categoryOf(routed, full.done))
-console.log('  куда ведёт дальше:', nextChapterOf(routed, any.done))
+// --- связь может уйти в соседнюю главу --------------------------------------
+// Точка d ведёт в первую точку следующей главы. Для главы это выход, а не
+// финал, и последней она быть перестаёт.
+const next = { id: 'ch2', nodes: [{ id: 'nd-x', levelId: 'x', next: [] }] }
+const routed = { ...ch, nodes: ch.nodes.map((n) => (n.id === 'nd-d' ? { ...n, next: ['nd-x'] } : n)) }
 
-// Развилка историй: два выхода ведут в разные главы
-const forked = {
-  ...ch,
-  nodes: ch.nodes.map((n) =>
-    n.levelId === 'd' ? { ...n, next: 'ch-mirnaya' } : n.levelId === 'e' ? { ...n, next: 'ch-temnaya' } : n),
-}
-console.log('\n— развилка истории')
-console.log('  выходы:', exitNodes(forked).join(', '))
-console.log('  вышли через d →', nextChapterOf(forked, any.done))
-console.log('  вышли через e →', nextChapterOf(forked, cheat.done), '(не тупик, а другая ветка истории)')
+console.log('\n— связь наружу')
+console.log('  выходы:', exitNodes(routed).join(', '), '| финалы:', endingNodes(routed).join(', '))
+check('выход наружу нашёлся', exitNodes(routed).join() === 'nd-d')
+check('e остаётся финалом', endingNodes(routed).join() === 'nd-e')
+check('куда ведёт дальше', nextChapterOf(routed, any.done, [routed, next]) === 'ch2')
+check('через короткую ветку наружу не выйти', nextChapterOf(routed, short.done, [routed, next]) === null)

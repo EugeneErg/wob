@@ -8,7 +8,7 @@ import { bboxOfPoints, distToPolyline, nearestEdgeIndex } from '../../core/geom.
 
 export default defineEntity({
   type: 'pipe',
-  title: 'Труба',
+  title: 'Pipe',
   z: LAYERS.midground,
   icon: '<svg viewBox="0 0 24 24"><path d="M4 18v-6a5 5 0 0 1 5-5h11" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/></svg>',
 
@@ -116,9 +116,9 @@ export default defineEntity({
     },
 
     props: () => [
-      { key: 'power', label: 'Всасывание', type: 'range', min: 0, max: 3, step: 0.1, global: true },
-      { key: 'radius', label: 'Диаметр устья', type: 'range', min: 14, max: 60, step: 1 },
-      { key: 'color', label: 'Цвет', type: 'color' },
+      { key: 'power', label: 'Suction', type: 'range', min: 0, max: 3, step: 0.1, global: true },
+      { key: 'radius', label: 'Mouth diameter', type: 'range', min: 14, max: 60, step: 1 },
+      { key: 'color', label: 'Color', type: 'color' },
     ],
   },
 })

@@ -39,7 +39,7 @@ export function readOnlyContext(level, entity) {
     },
   }
   for (const m of CONTEXT_MUTATORS) {
-    ctx[m] = () => { throw new Error(`ctx.${m}() недоступен в редакторе: shapes() должна быть чистой`) }
+    ctx[m] = () => { throw new Error(`ctx.${m}() is not available in the editor: shapes() must be pure`) }
   }
   return ctx
 }

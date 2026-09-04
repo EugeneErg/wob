@@ -13,7 +13,7 @@ const RAD = Math.PI / 180
 
 export default defineEntity({
   type: 'fan',
-  title: 'Вентилятор',
+  title: 'Fan',
   z: LAYERS.midground + 1,
   icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 10c0-4 2-6 5-5s1 5-5 5m0 4c0 4-2 6-5 5s-1-5 5-5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>',
 
@@ -195,13 +195,13 @@ export default defineEntity({
     deleteHandles: () => false,
 
     props: () => [
-      { key: 'angle', label: 'Направление, °', type: 'range', min: -180, max: 180, step: 5 },
-      { key: 'power', label: 'Скорость на срезе', type: 'range', min: 0, max: 1400, step: 20 },
-      { key: 'nozzle', label: 'Горловина', type: 'range', min: 14, max: 160, step: 2 },
-      { key: 'cell', label: 'Клетка сетки', type: 'range', min: 14, max: 60, step: 2 },
-      { key: 'push', label: 'Сопротивление воздуха', type: 'range', min: 0, max: 20, step: 0.25 },
-      { key: 'show', label: 'Показывать поток', type: 'bool' },
-      { key: 'color', label: 'Цвет', type: 'color' },
+      { key: 'angle', label: 'Direction, °', type: 'range', min: -180, max: 180, step: 5 },
+      { key: 'power', label: 'Outlet speed', type: 'range', min: 0, max: 1400, step: 20 },
+      { key: 'nozzle', label: 'Nozzle width', type: 'range', min: 14, max: 160, step: 2 },
+      { key: 'cell', label: 'Grid cell', type: 'range', min: 14, max: 60, step: 2 },
+      { key: 'push', label: 'Air resistance', type: 'range', min: 0, max: 20, step: 0.25 },
+      { key: 'show', label: 'Show the flow', type: 'bool' },
+      { key: 'color', label: 'Color', type: 'color' },
     ],
   },
 })

@@ -32,7 +32,7 @@ const pos = (ctx, p) => { if (!ctx) return p; const [x, y] = ctx.place(p.x, p.y)
 
 export default defineEntity({
   type: 'hole',
-  title: 'Лунка',
+  title: 'Hole',
   z: LAYERS.midground + 2,
   icon: '<svg viewBox="0 0 24 24"><path d="M4 6v6a8 8 0 0 0 16 0V6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="11" r="3.2" fill="currentColor"/></svg>',
 
@@ -106,11 +106,11 @@ export default defineEntity({
     deleteHandles: () => false,
 
     props: () => [
-      { key: 'r', label: 'Под шар радиусом', type: 'range', min: 8, max: 60, step: 1 },
-      { key: 'depth', label: 'Глубина', type: 'range', min: 4, max: 120, step: 2 },
-      { key: 'counts', label: 'Засчитывать в цель уровня', type: 'bool' },
-      { key: 'signal', label: 'Имя сигнала', type: 'text' },
-      { key: 'color', label: 'Цвет', type: 'color' },
+      { key: 'r', label: 'Fits a ball of radius', type: 'range', min: 8, max: 60, step: 1 },
+      { key: 'depth', label: 'Depth', type: 'range', min: 4, max: 120, step: 2 },
+      { key: 'counts', label: 'Counts toward the level goal', type: 'bool' },
+      { key: 'signal', label: 'Signal name', type: 'text' },
+      { key: 'color', label: 'Color', type: 'color' },
     ],
   },
 })

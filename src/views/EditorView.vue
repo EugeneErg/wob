@@ -9,7 +9,7 @@
           class="tool hot" :class="{ on: creating?.asset === a }"
           :title="a.title" @click="startAsset(a)"
         >
-          <span class="ico" v-html="iconOf(a.type)" />
+          <span class="ico" v-html="assetIcon(a)" /><span v-if="a.entities?.length > 1" class="grp">{{ a.entities.length }}</span>
           <span class="lbl">{{ a.title }}</span>
         </button>
       </template>
@@ -37,7 +37,7 @@
       </div>
       <div v-for="a in allAssets" :key="a.id" class="asset">
         <button class="tool" :class="{ on: creating?.asset === a }" @click="startAsset(a)">
-          <span class="ico" v-html="iconOf(a.type)" />
+          <span class="ico" v-html="assetIcon(a)" /><span v-if="a.entities?.length > 1" class="grp">{{ a.entities.length }}</span>
           <span class="lbl">{{ a.title }}</span>
         </button>
         <button class="star" :class="{ on: isHot(a) }" :title="'Pinned to the ' + scope" @click="toggleHot(a)">★</button>
@@ -218,7 +218,9 @@ import { allEntities, getEntity } from '../core/registry.js'
 import { shapesForLevel } from '../core/scene.js'
 import * as lib from '../core/library.js'
 import { session } from '../core/session.js'
-import { saveLevel as pushLevel } from '../core/authoring.js'
+import { pullAssets } from '../core/cloud.js'
+import { deleteAsset, saveLevel as pushLevel } from '../core/authoring.js'
+import { makeAsset } from '../core/making.js'
 import { onQueueChange, queueState as queueSnapshot } from '../core/queue.js'
 import { readOnlyContext } from '../core/scene.js'
 import { newId } from '../core/world.js'
@@ -231,8 +233,24 @@ const props = defineProps({ levelId: String, chapterId: String, storyId: String 
 const emit = defineEmits(['back'])
 
 const defs = allEntities()
-const iconOf = (type) => getEntity(type)?.icon || ''
+
+// Иконка группы — иконка её первой известной части. Показать все значило бы
+// нарисовать на кнопке кашу; количество частей рядом говорит остальное.
+const assetIcon = (a) => {
+  for (const e of a.entities || []) { const d = getEntity(e.type); if (d?.icon) return d.icon }
+  return ''
+}
 const assetTick = ref(0)
+
+// Полка живёт в аккаунте: записи уходят поштучно, а прочитать её надо один раз
+// — иначе в чистом браузере палитра пуста при полной полке на сервере.
+onMounted(async () => {
+  if (session.status !== 'signed-in') return
+  try {
+    await pullAssets()
+    assetTick.value++
+  } catch { /* полка подождёт: без неё редактор рисует, просто без сохранённого */ }
+})
 const allAssets = computed(() => (assetTick.value, lib.assets()))
 const hot = computed(() => (assetTick.value, lib.hotAssets({
   storyId: props.storyId, chapterId: props.chapterId, levelId: props.levelId,
@@ -242,40 +260,100 @@ const scopeId = computed(() => ({ level: props.levelId, chapter: props.chapterId
 const isHot = (a) => (assetTick.value, lib.isHot(scope.value, scopeId.value, a.id))
 function toggleHot(a) { lib.toggleHot(scope.value, scopeId.value, a.id); assetTick.value++ }
 function dropAsset(a) {
-  if (confirm(`Delete the asset "${a.title}"?`)) { lib.removeAsset(a.id); assetTick.value++ }
+  if (confirm(`Delete the asset "${a.title}"?`)) {
+    lib.removeAsset(a.id)
+    if (session.status === 'signed-in') deleteAsset(a.id)
+    assetTick.value++
+  }
 }
+// Сохраняем выделенное целиком, а не одну сущность: сочетание и есть то, что
+// хочется переиспользовать. Если выделения нет, берём осмотренную — это тот же
+// случай, просто группа из одной.
 function saveAsset() {
-  const e = inspected.value
-  if (!e) return
-  const title = prompt('Asset name', e.def.title)
+  const picked = sel.value.length
+    ? sel.value.map((id) => find(id)).filter(Boolean)
+    : (inspected.value ? [find(inspected.value.id)] : [])
+  if (!picked.length) return
+
+  const title = prompt('Asset name', picked.length === 1 ? withDef(picked[0]).def.title : `Group of ${picked.length}`)
   if (!title) return
-  lib.createAsset({ type: e.type, title, data: e.data })
-  assetTick.value++
+
+  // Ссылка на родителя, который не попал в выделение, увела бы сущность в
+  // пустоту при вставке. Такие связи снимаем, а не тащим наружу.
+  const inside = new Set(picked.map((e) => e.id))
+  // Полка принадлежит автору, а не браузеру, и имя ассету даёт сервер — значит
+  // сначала он, а потом уже плитка в палитре.
+  makeAsset({
+    title,
+    entities: picked.map((e) => ({
+      id: e.id, type: e.type, data: structuredClone(e.data),
+      ...(e.parent && inside.has(e.parent) ? { parent: e.parent } : {}),
+    })),
+  })
+    .then(() => { assetTick.value++ })
+    .catch((e) => alert(e.message))
 }
 
-// An asset is placed with one click: a copy of its data is moved so its centre
-// lands under the cursor. How to move that data is the entity's own business —
-// editor.move.
+// Ассет ставится одним кликом: копия группы сдвигается так, чтобы её общий
+// центр оказался под курсором. Как двигать данные — дело самой сущности
+// (editor.move); группа лишь двигает все свои части на один и тот же вектор,
+// иначе сборка развалилась бы.
 function startAsset(a) {
-  const def = getEntity(a.type)
-  if (!def) return
-  creating.value = { def, asset: a, draft: { at: null } }
+  if (!(a.entities || []).some((e) => getEntity(e.type))) return
+  creating.value = { asset: a, draft: { at: null } }
   sel.value = []
   exitContext()
 }
-function assetData(a, pt) {
-  const def = getEntity(a.type)
-  const data = structuredClone(a.data)
-  const b = def.editor.bounds?.(data)
-  if (b) def.editor.move?.(data, pt.x - (b.x + b.w / 2), pt.y - (b.y + b.h / 2))
-  return data
+
+// Общие границы группы — объединение границ частей.
+function assetBounds(parts) {
+  let box = null
+  for (const { def, data } of parts) {
+    const b = def.editor.bounds?.(data)
+    if (!b) continue
+    box = box
+      ? { x: Math.min(box.x, b.x), y: Math.min(box.y, b.y),
+          r: Math.max(box.x + box.w, b.x + b.w), d: Math.max(box.y + box.h, b.y + b.h) }
+      : { x: b.x, y: b.y, r: b.x + b.w, d: b.y + b.h }
+  }
+  return box && { x: box.x, y: box.y, w: box.r - box.x, h: box.d - box.y }
 }
+
+// Части ассета, сдвинутые под курсор. Возвращаем и определение, и данные —
+// вызывающему нужно и рисовать превью, и вставлять.
+function assetParts(a, pt) {
+  const parts = (a.entities || [])
+    .map((e) => ({ src: e, def: getEntity(e.type), data: structuredClone(e.data) }))
+    .filter((p) => p.def)
+  if (!pt) return parts
+
+  const b = assetBounds(parts)
+  if (b) {
+    const dx = pt.x - (b.x + b.w / 2)
+    const dy = pt.y - (b.y + b.h / 2)
+    for (const p of parts) p.def.editor.move?.(p.data, dx, dy)
+  }
+  return parts
+}
+
 function placeAsset(pt) {
   const a = creating.value.asset
-  const e = { id: newId(a.type + '-'), type: a.type, data: assetData(a, pt) }
-  level.value.entities.push(e)
+  const parts = assetParts(a, pt)
+
+  // Внутри уровня id должны быть свои: тот же ассет можно поставить дважды, и
+  // второй раз не должен переписать первый. Ссылки на родителя переписываем на
+  // новые имена — иначе сборка после вставки указывала бы на чужие части.
+  const rename = new Map(parts.map((p) => [p.src.id, newId(p.src.type + '-')]))
+  const added = parts.map((p) => ({
+    id: rename.get(p.src.id),
+    type: p.src.type,
+    data: p.data,
+    ...(p.src.parent && rename.has(p.src.parent) ? { parent: rename.get(p.src.parent) } : {}),
+  }))
+
+  level.value.entities.push(...added)
   touched()
-  sel.value = [e.id]
+  sel.value = added.map((e) => e.id)
   creating.value = null
   mode.value = 'idle'
 }
@@ -406,9 +484,10 @@ const draftShapes = computed(() => {
   if (!c) return []
   if (c.asset) {
     if (!c.draft.at) return []
-    const data = assetData(c.asset, c.draft.at)
-    const ctx = readOnlyContext(level.value, { id: 'preview', type: c.asset.type })
-    return (c.def.shapes(data, null, ctx) || []).map((s) => ({ ...s, opacity: 0.65 }))
+    return assetParts(c.asset, c.draft.at).flatMap((p) => {
+      const ctx = readOnlyContext(level.value, { id: 'preview', type: p.src.type })
+      return (p.def.shapes(p.data, null, ctx) || []).map((s) => ({ ...s, opacity: 0.65 }))
+    })
   }
   return c.def.editor.create.shapes?.(c.draft) || []
 })
@@ -748,7 +827,7 @@ function leave() { save(); emit('back') }
   display: flex; align-items: center; gap: 10px; width: 100%;
   background: none; border: 1px solid transparent; border-radius: 10px;
   padding: 9px 10px; color: var(--text); cursor: pointer; text-align: left;
-  font: inherit; font-size: 13px;
+  font: inherit; font-size: 13px; position: relative;
 }
 .tool:hover { background: var(--panel); }
 .tool.on { background: rgba(226, 112, 74, 0.16); border-color: var(--goo); color: #ffd9a0; }
@@ -757,6 +836,10 @@ function leave() { save(); emit('back') }
 .scope {
   background: #101a20; color: var(--muted); border: 1px solid var(--line);
   border-radius: 6px; font: inherit; font-size: 10px; padding: 2px 4px;
+}
+.grp {
+  position: absolute; right: 3px; bottom: 3px; font-family: var(--font-mono); font-size: 9px;
+  color: var(--muted); background: var(--bg); border-radius: 3px; padding: 0 2px;
 }
 .asset { display: flex; align-items: center; gap: 2px; }
 .asset .tool { flex: 1; min-width: 0; }

@@ -7,8 +7,16 @@ globalThis.localStorage = {
 }
 
 const lib = await import('../src/core/library.js')
+
+// В проверках сервера нет, а имена выдаёт он. Считаем сами — так видно, что
+// библиотека их только раскладывает, а не придумывает.
+let minted = 0
+const mint = (p) => `${p}-t${++minted}`
 const { seed } = await import('./seed.mjs')
 seed(lib)
+
+// Точку ищем по уровню: в этих проверках уровень стоит ровно в одном месте.
+const nd = (ch, levelId) => ch.nodes.find((n) => n.levelId === levelId).id
 
 // --- встроенное содержимое ---
 const s = lib.stories()[0]
@@ -20,29 +28,29 @@ console.log('точки без уровней:', orphans.length, '(должно 
 // --- открытие уровней по мере прохождения ---
 const ch1 = chs[0], ch2 = chs[1]
 const [a, b] = ch1.nodes.map((n) => n.levelId)
-console.log(`\nсначала: «${lib.level(a).name}» открыт ${lib.levelOpen(ch1, a)}, «${lib.level(b).name}» открыт ${lib.levelOpen(ch1, b)}`)
-console.log(`тропинка между ними видна: ${lib.edgeVisible(ch1.edges[0])} (ещё нет)`)
+console.log(`\nсначала: «${lib.level(a).name}» открыт ${lib.nodeOpen(ch1, nd(ch1, a))}, «${lib.level(b).name}» открыт ${lib.nodeOpen(ch1, nd(ch1, b))}`)
+console.log(`тропинка между ними видна: ${lib.linkVisible(ch1, nd(ch1, a))} (ещё нет)`)
 console.log(`вторая глава открыта: ${lib.chapterOpen(s.id, ch2.id)} (ещё нет)`)
 
 lib.markDone(a)
-console.log(`\nпосле первого уровня: второй открыт ${lib.levelOpen(ch1, b)}, тропинка видна ${lib.edgeVisible(ch1.edges[0])}`)
+console.log(`\nпосле первого уровня: второй открыт ${lib.nodeOpen(ch1, nd(ch1, b))}, тропинка видна ${lib.linkVisible(ch1, nd(ch1, a))}`)
 console.log(`вторая глава открыта: ${lib.chapterOpen(s.id, ch2.id)} (ещё нет — глава не пройдена)`)
 lib.markDone(b)
 console.log(`после всей главы: глава пройдена ${lib.chapterDone(ch1)}, вторая открыта ${lib.chapterOpen(s.id, ch2.id)}`)
 
 // --- развилка: два пути из одной точки ---
-const fork = lib.createChapter(s.id, 'Развилка')
-const l0 = lib.createLevel(fork.id, 'Старт')
-const l1 = lib.createLevel(fork.id, 'Левый путь')
-const l2 = lib.createLevel(fork.id, 'Правый путь')
+const fork = lib.createChapter(s.id, mint('ch'), 'Развилка')
+const l0 = lib.createLevel(fork.id, { id: mint('lvl'), nodeId: mint('nd') }, 'Старт')
+const l1 = lib.createLevel(fork.id, { id: mint('lvl'), nodeId: mint('nd') }, 'Левый путь')
+const l2 = lib.createLevel(fork.id, { id: mint('lvl'), nodeId: mint('nd') }, 'Правый путь')
 fork.edges = [{ from: l0.id, to: l1.id }, { from: l0.id, to: l2.id }]
 lib.save()
-console.log(`\nразвилка: старт открыт ${lib.levelOpen(fork, l0.id)}, ветки ${lib.levelOpen(fork, l1.id)}/${lib.levelOpen(fork, l2.id)}`)
+console.log(`\nразвилка: старт открыт ${lib.nodeOpen(fork, nd(fork, l0.id))}, ветки ${lib.nodeOpen(fork, nd(fork, l1.id))}/${lib.nodeOpen(fork, nd(fork, l2.id))}`)
 lib.markDone(l0.id)
-console.log(`после старта обе ветки открылись: ${lib.levelOpen(fork, l1.id) && lib.levelOpen(fork, l2.id)}`)
+console.log(`после старта обе ветки открылись: ${lib.nodeOpen(fork, nd(fork, l1.id)) && lib.nodeOpen(fork, nd(fork, l2.id))}`)
 
 // --- горячие ассеты складываются по трём уровням ---
-const mk = (t) => lib.createAsset({ type: 'game-ball', title: t, data: { x: 0, y: 0, r: 13 } })
+const mk = (t) => lib.createAsset({ id: mint('as'), type: 'game-ball', title: t, data: { x: 0, y: 0, r: 13 } })
 const aS = mk('от истории'), aC = mk('от главы'), aL = mk('от уровня')
 const lvlId = ch2.nodes[0].levelId
 lib.toggleHot('story', s.id, aS.id)
@@ -67,9 +75,13 @@ console.log('уровни скопировались, а не переиспол
   lib.chaptersOf(copy.id)[0].nodes[0].levelId !== chs[0].nodes[0].levelId)
 console.log('прогресс к копии не прилип:', !lib.isDone(lib.chaptersOf(copy.id)[0].nodes[0].levelId))
 
-// глава отдельным файлом
+// Глава без истории больше не усыновляется.
+//
+// Раньше обе стороны заводили ей историю-приют с придуманным названием. Названий
+// система не выдумывает: какой истории принадлежит глава, знает только автор.
+// А поскольку загрузки из файла больше нет, взяться такой главе неоткуда.
 const chBundle = lib.exportChapter(ch2.id)
 const added2 = lib.importBundle(JSON.parse(JSON.stringify(chBundle)))
-console.log(`\nглава отдельным файлом: приютом стала история «${added2[0].title}» с ${lib.chaptersOf(added2[0].id).length} главой`)
+console.log('\nистории для беспризорной главы не выдумано:', added2.length === 0)
 
 try { lib.importBundle({ hello: 'world' }) } catch (e) { console.log('чужой файл отвергнут:', e.message) }

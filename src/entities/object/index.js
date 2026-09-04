@@ -9,7 +9,7 @@ import { bboxOfPoints, pointInPoly, nearestEdgeIndex } from '../../core/geom.js'
 
 export default defineEntity({
   type: 'object',
-  title: 'Объект',
+  title: 'Object',
   z: LAYERS.body - 1,
   icon: '<svg viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></svg>',
 
@@ -94,12 +94,12 @@ export default defineEntity({
     },
 
     props: () => [
-      { key: 'mass', label: 'Вес', type: 'range', min: -20, max: 40, step: 0.5, global: true },
-      { key: 'smoothness', label: 'Гладкость', type: 'range', min: 0, max: 1, step: 0.05, global: true },
-      { key: 'restitution', label: 'Упругость', type: 'range', min: 0, max: 1, step: 0.05, global: true },
-      { key: 'static', label: 'Закреплён', type: 'bool' },
-      { key: 'fill', label: 'Заливка', type: 'color' },
-      { key: 'edge', label: 'Кромка', type: 'color' },
+      { key: 'mass', label: 'Weight', type: 'range', min: -20, max: 40, step: 0.5, global: true },
+      { key: 'smoothness', label: 'Smoothness', type: 'range', min: 0, max: 1, step: 0.05, global: true },
+      { key: 'restitution', label: 'Bounciness', type: 'range', min: 0, max: 1, step: 0.05, global: true },
+      { key: 'static', label: 'Fixed in place', type: 'bool' },
+      { key: 'fill', label: 'Fill', type: 'color' },
+      { key: 'edge', label: 'Edge', type: 'color' },
     ],
   },
 })

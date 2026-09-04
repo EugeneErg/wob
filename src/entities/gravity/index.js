@@ -111,7 +111,7 @@ const signOf = (wells, uniform) =>
 
 export default defineEntity({
   type: 'gravity-well',
-  title: 'Притяжение',
+  title: 'Gravity well',
   z: LAYERS.background + 5,
   icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 3"/></svg>',
 
@@ -283,18 +283,18 @@ export default defineEntity({
     deleteHandles: () => false,   // ручку не удалить — мир уберёт сущность целиком
 
     props: () => [
-      { key: 'pull', label: 'Тяга на поверхности', type: 'range', min: -4000, max: 4000, step: 50 },
-      { key: 'radius', label: 'Радиус тела', type: 'range', min: 8, max: 400, step: 2 },
-      { key: 'falloff', label: 'Спад (2 — обратные квадраты)', type: 'range', min: 0, max: 3, step: 0.25 },
-      { key: 'range', label: 'Дальность (0 — без предела)', type: 'range', min: 0, max: 2400, step: 20 },
-      { key: 'solid', label: 'Твёрдое тело', type: 'bool' },
-      { key: 'movable', label: 'Игрок может таскать', type: 'bool' },
-      { key: 'signal', label: 'Выключатель (сигнал)', type: 'text' },
-      { key: 'invert', label: 'Работает, пока сигнала нет', type: 'bool' },
-      { key: 'lines', label: 'Силовых линий', type: 'range', min: 0, max: 40, step: 1 },
-      { key: 'smoothness', label: 'Гладкость', type: 'range', min: 0, max: 1, step: 0.05, global: true },
-      { key: 'color', label: 'Цвет', type: 'color' },
-      { key: 'fill', label: 'Заливка', type: 'color' },
+      { key: 'pull', label: 'Pull at the surface', type: 'range', min: -4000, max: 4000, step: 50 },
+      { key: 'radius', label: 'Body radius', type: 'range', min: 8, max: 400, step: 2 },
+      { key: 'falloff', label: 'Falloff (2 = inverse square)', type: 'range', min: 0, max: 3, step: 0.25 },
+      { key: 'range', label: 'Range (0 = unlimited)', type: 'range', min: 0, max: 2400, step: 20 },
+      { key: 'solid', label: 'Solid body', type: 'bool' },
+      { key: 'movable', label: 'Player can drag it', type: 'bool' },
+      { key: 'signal', label: 'Switch (signal)', type: 'text' },
+      { key: 'invert', label: 'Works while the signal is off', type: 'bool' },
+      { key: 'lines', label: 'Field lines', type: 'range', min: 0, max: 40, step: 1 },
+      { key: 'smoothness', label: 'Smoothness', type: 'range', min: 0, max: 1, step: 0.05, global: true },
+      { key: 'color', label: 'Color', type: 'color' },
+      { key: 'fill', label: 'Fill', type: 'color' },
     ],
   },
 })

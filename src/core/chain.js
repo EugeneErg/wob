@@ -34,9 +34,19 @@ export class ChainRun {
   // сегменту отдельно: попытка главы ссылается на версию главы, но проигрывают
   // её по уровням, и уровень мог измениться сам по себе. Без отпечатка на
   // сегменте повтор молча пошёл бы по нынешнему уровню.
-  push(snapshot, { levelId, chapterId = null, hash = null } = {}) {
+  // nodeId — точка на карте, а не уровень. Один уровень может стоять в
+  // нескольких точках: встреченный второй раз, он ведёт дальше по-своему и
+  // заканчивается своим роликом. Если считать пройденным уровень, а не точку,
+  // то пройдя его в одной точке игрок откроет наследников всех трёх сразу —
+  // и дерево истории перестанет быть деревом.
+  //
+  // У старых записей точки нет: там уровень стоял ровно в одном месте, и имя
+  // точки выводится из уровня — то же правило, что на сервере.
+  push(snapshot, { levelId, nodeId = null, chapterId = null, hash = null } = {}) {
+    const level = levelId || snapshot.levelId
     this.segments.push({
-      levelId: levelId || snapshot.levelId,
+      levelId: level,
+      nodeId: nodeId || 'nd-' + level,
       chapterId,
       hash,
       ticks: snapshot.ticks,
@@ -60,9 +70,11 @@ export class ChainRun {
 
   // Какие уровни пройдены. Уровень считается пройденным, если хоть один заход
   // на него закончился целью: переигрывать после успеха не запрещено.
+  // Пройденное — множество ТОЧЕК. Уровень может стоять в нескольких, и
+  // пройденный в одной из них он остальные не открывает.
   get done() {
     const s = new Set()
-    for (const g of this.segments) if (g.finished) s.add(g.levelId)
+    for (const g of this.segments) if (g.finished) s.add(g.nodeId || 'nd-' + g.levelId)
     return s
   }
 
@@ -105,63 +117,69 @@ export function segmentRecord(rec, i) {
 }
 
 // --- проценты ----------------------------------------------------------------
-// Выход из главы — узел, к которому привязана следующая глава: n.next.
+// Связи идут от точки к точке и могут уходить в соседнюю главу. Раньше это были
+// рёбра между уровнями внутри главы плюс отдельная привязка узла к следующей
+// главе — одна и та же мысль в двух масштабах, то есть два ответа на вопрос
+// «что дальше». Теперь ответ один.
 //
-// Отличать финал от тупика по одному лишь графу нельзя: «из узла не ведёт ни
-// одна тропа» одинаково верно и для настоящего конца, и для боковой ветки,
-// куда игрок свернул и главу не прошёл. Разница не косметическая — если
-// считать тупик финалом, свернуть в него оказывается вдвое быстрее честного
-// прохождения, и any% превращается в соревнование «кто быстрее свернёт».
+// Точка, из которой не ведёт ни одной связи, — финал. Их у истории много, а
+// начало одно: story.start.
 //
-// Отдельный флажок «это финал» решал бы задачу, но был бы лишней сущностью:
-// автор и так должен сказать, куда ведёт глава дальше. Привязка узла к
-// следующей главе несёт этот смысл сама — и заодно даёт развилку историй:
-// разные концы главы могут вести в разные главы. А узел без привязки и без
-// исходящих троп — тупик, и это видно без всяких пометок.
-export const exitNodes = (ch) =>
-  ch.nodes.filter((n) => n.next).map((n) => n.levelId)
+// Цена этого решения записана здесь честно. Отличить задуманный финал от
+// боковой ветки, где автор просто не дорисовал продолжение, по одному графу
+// нельзя — «связей нет» одинаково верно про обоих. Значит, свернуть в короткую
+// ветку — законное прохождение any%, и быстрейший маршрут может оказаться
+// вовсе не тем, который автор считал историей. Раньше это прикрывала привязка
+// к следующей главе, несшая смысл «глава кончилась здесь». Теперь прикрывает
+// редактор: на карте финальные точки видно, и незакрытая ветка бросается в
+// глаза автору сразу, а не спидраннеру через месяц.
+const linksOf = (n) => n.next || []
 
-// Тупики: доиграть до них можно, но главу это не проходит. Редактору есть
-// что показать автору — скорее всего он просто забыл привязать продолжение.
-export const deadEnds = (ch) =>
-  ch.nodes
-    .filter((n) => !n.next && !ch.edges.some((e) => e.from === n.levelId))
-    .map((n) => n.levelId)
+const idsOf = (ch) => new Set(ch.nodes.map((n) => n.id))
 
-// Последняя глава истории выходов не имеет: дальше ничего нет. Тогда финалом
-// считается узел без исходящих троп — в такой главе он и есть конец пути.
-export const isLastChapter = (ch) => !ch.nodes.some((n) => n.next)
-
-export const finishNodes = (ch) =>
-  isLastChapter(ch) ? deadEnds(ch) : exitNodes(ch)
-
-// Главе нужна рука автора: концов несколько, но ни один никуда не ведёт.
-// Пока так, any% в ней считать нельзя — иначе зачёт достанется тупику.
-export function needsRouting(ch) {
-  if (ch.nodes.some((n) => n.next)) return false
-  return deadEnds(ch).length > 1
+// Выходы: точки, чьи связи уводят за пределы главы.
+export function exitNodes(ch) {
+  const mine = idsOf(ch)
+  return ch.nodes.filter((n) => linksOf(n).some((c) => !mine.has(c))).map((n) => n.id)
 }
 
-// any% — глава пройдена: взята одна ветка и достигнут её выход. Остальные
+// Финалы: точки, из которых не ведёт ничего.
+export const endingNodes = (ch) => ch.nodes.filter((n) => linksOf(n).length === 0).map((n) => n.id)
+
+// Последняя глава истории выходов не имеет: дальше ничего нет.
+export const isLastChapter = (ch) => exitNodes(ch).length === 0
+
+// Чем глава кончается: либо уходом дальше, либо финалом. И то и другое —
+// законный конец главы, поэтому считаются вместе.
+export const finishNodes = (ch) => [...new Set([...exitNodes(ch), ...endingNodes(ch)])]
+
+// any% — глава пройдена: взята одна ветка и достигнут её конец. Остальные
 // ветки при этом могут остаться нетронутыми, и это законный результат.
 export function isAnyPercent(ch, done) {
-  if (needsRouting(ch)) return false
-  const exits = finishNodes(ch)
-  return exits.length > 0 && exits.some((id) => done.has(id))
+  const ends = finishNodes(ch)
+  return ends.length > 0 && ends.some((id) => done.has(id))
 }
 
 // Куда ведёт пройденная глава: следующая глава по тому выходу, которым вышли.
 // Историю это превращает из списка глав в граф — ровно то, ради чего привязка
 // и заводилась.
-export function nextChapterOf(ch, done) {
-  const taken = ch.nodes.find((n) => n.next && done.has(n.levelId))
-  return taken ? taken.next : null
+export function nextChapterOf(ch, done, chapters = []) {
+  const mine = idsOf(ch)
+  for (const n of ch.nodes) {
+    if (!done.has(n.id)) continue
+    for (const child of linksOf(n)) {
+      if (mine.has(child)) continue
+      const target = chapters.find((c) => c.nodes.some((m) => m.id === child))
+      if (target) return target.id
+    }
+  }
+  return null
 }
 
 // 100% — пройдены все уровни главы, то есть все ветки, а не только та,
 // что ведёт к концу быстрее.
 export function isFullPercent(ch, done) {
-  return ch.nodes.length > 0 && ch.nodes.every((n) => done.has(n.levelId))
+  return ch.nodes.length > 0 && ch.nodes.every((n) => done.has(n.id))
 }
 
 // Категорию не выбирают заранее, её показывает сам прогон: прошёл все ветки —
@@ -176,7 +194,7 @@ export function categoryOf(ch, done) {
 
 // Доля пройденного — то, что показывают в интерфейсе рядом с таймером
 export const percentOf = (ch, done) =>
-  ch.nodes.length ? Math.round((ch.nodes.filter((n) => done.has(n.levelId)).length / ch.nodes.length) * 100) : 0
+  ch.nodes.length ? Math.round((ch.nodes.filter((n) => done.has(n.id)).length / ch.nodes.length) * 100) : 0
 
 // --- история как граф глав ---------------------------------------------------
 //
@@ -190,13 +208,19 @@ export const percentOf = (ch, done) =>
 // сделал несколько начал) — все они начала. Если ни одной, значит связи
 // образуют кольцо; тогда берём первую по составу, чтобы игра не оказалась
 // без входа вовсе.
+// Начало у истории одно и названо явно: story.start — конкретная точка. Какой
+// главе она принадлежит, точка знает сама, поэтому входная глава выводится, а
+// не угадывается.
+//
+// Раньше входом считалась глава, на которую никто не указывает. Это ответ от
+// противного: вход был следствием того, чего автор НЕ нарисовал, и у истории
+// без связей входами оказывались разом все главы.
 export function entryChapters(story, chapters) {
   const own = story.chapters || []
-  const targeted = new Set(
-    chapters.filter((c) => own.includes(c.id))
-      .flatMap((c) => c.nodes.filter((n) => n.next).map((n) => n.next)))
-  const entries = own.filter((id) => !targeted.has(id))
-  return entries.length ? entries : own.slice(0, 1)
+  const mine = chapters.filter((c) => own.includes(c.id))
+  const holder = mine.find((c) => c.nodes.some((n) => n.id === story.start))
+  if (holder) return [holder.id]
+  return own.length ? own.slice(0, 1) : []
 }
 
 // Что пройдено, разложенное по главам. Попытка истории — та же цепочка
@@ -207,38 +231,43 @@ export function doneByChapter(run) {
     if (!g.finished) continue
     const key = g.chapterId || null
     if (!out.has(key)) out.set(key, new Set())
-    out.get(key).add(g.levelId)
+    out.get(key).add(g.nodeId || 'nd-' + g.levelId)
   }
+  return out
+}
+
+// Всё пройденное одной кучей, без разбивки по главам: связь может уйти в
+// соседнюю главу, поэтому «открыта ли эта точка» — вопрос про всю историю.
+export function doneNodes(run) {
+  const out = new Set()
+  for (const g of run.segments) if (g.finished) out.add(g.nodeId || 'nd-' + g.levelId)
   return out
 }
 
 // Какие главы открыты. Начальные — всегда; остальные — те, в которые ведёт
 // пройденный выход уже пройденной главы. Правило то же, что у уровней внутри
 // главы, этажом выше.
+// Какие главы открыты. Входная — всегда; остальные — те, куда ведёт связь из
+// пройденной точки. Двух режимов больше нет: раньше история без единой привязки
+// шла линейно по списку глав, а с любой привязкой — как граф. Список глав
+// теперь задаёт только порядок показа, а порядок прохождения задают связи.
 export function openChapters(story, chapters, doneMap) {
-  const list = story.chapters || []
-  const own = new Set(list)
+  const own = new Set(story.chapters || [])
   const mine = chapters.filter((c) => own.has(c.id))
-  const routed = mine.some((c) => c.nodes.some((n) => n.next))
-
-  // Непривязанная история линейна: следующая глава открывается, когда
-  // предыдущая пройдена. Это прежнее правило, и менять его незачем — развилки
-  // нужны не всем.
-  if (!routed) {
-    const open = list.length ? [list[0]] : []
-    for (let i = 0; i < list.length - 1; i++) {
-      const ch = mine.find((c) => c.id === list[i])
-      if (ch && categoryOf(ch, doneMap.get(ch.id) || new Set())) open.push(list[i + 1])
-      else break
-    }
-    return open
-  }
-
   const open = new Set(entryChapters(story, chapters))
+
+  const chapterOf = (nodeId) => mine.find((c) => c.nodes.some((n) => n.id === nodeId))
+
   for (const ch of mine) {
     const done = doneMap.get(ch.id)
     if (!done) continue
-    for (const n of ch.nodes) if (n.next && done.has(n.levelId) && own.has(n.next)) open.add(n.next)
+    for (const n of ch.nodes) {
+      if (!done.has(n.id)) continue
+      for (const child of linksOf(n)) {
+        const target = chapterOf(child)
+        if (target) open.add(target.id)
+      }
+    }
   }
   return [...open]
 }
@@ -254,12 +283,42 @@ export function openChapters(story, chapters, doneMap) {
 // было до появления развилок, и концом считается последняя. Это не запасной
 // вариант «на всякий случай», а нормальный: линейной истории привязки не нужны,
 // и требовать их от автора не за что.
+/**
+ * Глава, в которой игрок сейчас находится.
+ *
+ * Списка глав у игрока больше нет: история открывается сразу картой. Значит
+ * кто-то должен ответить, какой именно, а с ветвлением открытых глав может быть
+ * несколько одновременно.
+ *
+ * Правило: из открытых берём ту, где есть куда пойти и уже что-то пройдено —
+ * это и есть место, где игрок остановился. Если начатых нет, берём первую
+ * открытую, где есть непройденные точки. Если пройдено всё — главу, где история
+ * начинается: возвращаться в конец логичнее всего оттуда.
+ *
+ * Ветку игрок выбирает сам, дойдя до двери на карте, а не здесь: угадывать за
+ * него, какую из двух открывшихся глав он имел в виду, — худший способ
+ * распорядиться развилкой, ради которой всё и затевалось.
+ */
+export function activeChapter(story, chapters, doneMap) {
+  const open = new Set(openChapters(story, chapters, doneMap))
+  const mine = chapters.filter((c) => open.has(c.id))
+  const doneIn = (c) => doneMap.get(c.id) || new Set()
+  const left = (c) => c.nodes.some((n) => !doneIn(c).has(n.id))
+
+  const started = mine.filter((c) => doneIn(c).size > 0 && left(c))
+  if (started.length) return started[started.length - 1].id
+
+  const fresh = mine.find((c) => left(c))
+  if (fresh) return fresh.id
+
+  const holder = chapters.find((c) => c.nodes.some((n) => n.id === story.start))
+  return holder?.id || mine[0]?.id || null
+}
+
 export function finalChapters(story, chapters) {
   const own = (story.chapters || [])
   const mine = chapters.filter((c) => own.includes(c.id))
-  const routed = mine.some((c) => c.nodes.some((n) => n.next))
-  if (routed) return mine.filter((c) => isLastChapter(c)).map((c) => c.id)
-  return own.length ? [own[own.length - 1]] : []
+  return mine.filter((c) => isLastChapter(c)).map((c) => c.id)
 }
 
 // Категория прохождения истории.
@@ -287,11 +346,16 @@ export function storyPercent(story, chapters, doneMap) {
 // Какие уровни сейчас доступны: входные и те, к которым пройдена ведущая
 // тропа. Ровно то же правило, что на карте главы, но считается по прогрессу
 // этой попытки, а не по общему сохранению: в спидране прошлые заслуги не в счёт.
-export function openNodes(ch, done) {
-  return ch.nodes
-    .filter((n) => {
-      const incoming = ch.edges.filter((e) => e.to === n.levelId)
-      return !incoming.length || incoming.some((e) => done.has(e.from))
-    })
-    .map((n) => n.levelId)
+// Какие точки сейчас доступны. Открыта та, в которую ведёт пройденная точка, —
+// и та, в которую не ведёт ничего: у неё нет условия, значит она вход.
+//
+// Связь может прийти из соседней главы, поэтому одной главы для ответа уже не
+// хватает: нужен весь набор глав истории и то, что пройдено в них всех. Когда
+// их не передали, работаем по одной главе — так ведут себя старые вызовы.
+export function openNodes(ch, done, { chapters = [ch], done: doneAll = done } = {}) {
+  const targeted = new Set(chapters.flatMap((c) => c.nodes.flatMap((n) => linksOf(n))))
+  const parentsDone = (id) => chapters.some((c) =>
+    c.nodes.some((n) => linksOf(n).includes(id) && doneAll.has(n.id)))
+
+  return ch.nodes.filter((n) => !targeted.has(n.id) || parentsDone(n.id)).map((n) => n.id)
 }

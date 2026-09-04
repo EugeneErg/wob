@@ -18,7 +18,7 @@ const KEY = 'goo.runs.v1'
 export { RULES_VERSION, checkRecord, stampOf, stampFor, seedFor } from './releases.js'
 // Реэкспорт не вносит имена в этот модуль — то, чем пользуемся сами,
 // импортируем отдельно.
-import { checkRecord, stampFor, RULES_VERSION } from './releases.js'
+import { checkRecord, stampFor } from './releases.js'
 
 // Два времени, и путать их нельзя.
 //

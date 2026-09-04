@@ -16,10 +16,10 @@ import { SurfaceMesher, bulkFieldValue } from './mesher.js'
 // такое же позиционное ограничение, как связь, контакт или жёсткая форма.
 
 const SUBSTANCES = {
-  water: { name: 'вода', density: 1.0, viscosity: 0.05, tension: 3.06, wetting: 1.02, fill: '#3fb2cf', edge: '#a8e9f7' },
-  oil: { name: 'масло', density: 0.75, viscosity: 0.12, tension: 2.24, wetting: 1.43, fill: '#c08a3e', edge: '#f3d3a2' },
-  honey: { name: 'мёд', density: 1.4, viscosity: 0.55, tension: 3.57, wetting: 2.65, fill: '#c9922b', edge: '#f0c380' },
-  mercury: { name: 'ртуть', density: 2.9, viscosity: 0.06, tension: 6.12, wetting: 0.0, fill: '#9fb6c2', edge: '#dfeaf0' },
+  water: { name: 'water', density: 1.0, viscosity: 0.05, tension: 3.06, wetting: 1.02, fill: '#3fb2cf', edge: '#a8e9f7' },
+  oil: { name: 'oil', density: 0.75, viscosity: 0.12, tension: 2.24, wetting: 1.43, fill: '#c08a3e', edge: '#f3d3a2' },
+  honey: { name: 'honey', density: 1.4, viscosity: 0.55, tension: 3.57, wetting: 2.65, fill: '#c9922b', edge: '#f0c380' },
+  mercury: { name: 'mercury', density: 2.9, viscosity: 0.06, tension: 6.12, wetting: 0.0, fill: '#9fb6c2', edge: '#dfeaf0' },
 }
 
 // Частица среды — точка того же мира, поэтому её вес задан в единицах мира.
@@ -56,7 +56,7 @@ function pathOf(polys) {
 
 export default defineEntity({
   type: 'liquid',
-  title: 'Жидкость',
+  title: 'Liquid',
   z: LAYERS.ground - 1,
   icon: '<svg viewBox="0 0 24 24"><path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z" fill="currentColor"/></svg>',
 
@@ -210,12 +210,12 @@ export default defineEntity({
       data.points.splice(i + 1, 0, [pt.x, pt.y])
     },
     props: () => [
-      { key: 'substance', label: 'Вещество', type: 'select', options: Object.entries(SUBSTANCES).map(([k, v]) => ({ value: k, label: v.name })) },
-      { key: 'density', label: 'Плотность (вода = 1)', type: 'range', min: 0.2, max: 3, step: 0.05 },
-      { key: 'viscosity', label: 'Вязкость', type: 'range', min: 0, max: 0.9, step: 0.01 },
-      { key: 'tension', label: 'Поверхностное натяжение', type: 'range', min: 0, max: 7, step: 0.1 },
-      { key: 'grain', label: 'Шаг частиц, px', type: 'range', min: 6, max: 24, step: 1 },
-      { key: 'limit', label: 'Предел частиц', type: 'range', min: 200, max: 5000, step: 100 },
+      { key: 'substance', label: 'Substance', type: 'select', options: Object.entries(SUBSTANCES).map(([k, v]) => ({ value: k, label: v.name })) },
+      { key: 'density', label: 'Density (water = 1)', type: 'range', min: 0.2, max: 3, step: 0.05 },
+      { key: 'viscosity', label: 'Viscosity', type: 'range', min: 0, max: 0.9, step: 0.01 },
+      { key: 'tension', label: 'Surface tension', type: 'range', min: 0, max: 7, step: 0.1 },
+      { key: 'grain', label: 'Particle spacing, px', type: 'range', min: 6, max: 24, step: 1 },
+      { key: 'limit', label: 'Particle limit', type: 'range', min: 200, max: 5000, step: 100 },
     ],
   },
 })

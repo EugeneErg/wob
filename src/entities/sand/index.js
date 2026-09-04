@@ -48,7 +48,7 @@ function pathOf(polys) {
 
 export default defineEntity({
   type: 'sand',
-  title: 'Песок',
+  title: 'Sand',
   z: LAYERS.ground + 1,
   icon: '<svg viewBox="0 0 24 24"><path d="M3 17h18v4H3z" fill="currentColor"/><path d="M5 17c2-5 5-8 7-8s5 3 7 8" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
 
@@ -134,10 +134,10 @@ export default defineEntity({
     },
 
     props: () => [
-      { key: 'dig', label: 'Радиус подкопа', type: 'range', min: 4, max: 60, step: 1 },
-      { key: 'smoothness', label: 'Гладкость', type: 'range', min: 0, max: 1, step: 0.05, global: true },
-      { key: 'fill', label: 'Заливка', type: 'color' },
-      { key: 'edge', label: 'Кромка', type: 'color' },
+      { key: 'dig', label: 'Digging radius', type: 'range', min: 4, max: 60, step: 1 },
+      { key: 'smoothness', label: 'Smoothness', type: 'range', min: 0, max: 1, step: 0.05, global: true },
+      { key: 'fill', label: 'Fill', type: 'color' },
+      { key: 'edge', label: 'Edge', type: 'color' },
     ],
   },
 })

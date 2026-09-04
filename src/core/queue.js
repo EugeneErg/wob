@@ -121,6 +121,27 @@ async function drain() {
           return
         }
 
+        // Отказ, который не пройдёт никогда: уровня нет, доступа нет, тело не
+        // принято. Повторять такое бессмысленно — правка застревает первой в
+        // очереди и блокирует все, что за ней, повторяясь каждые две секунды до
+        // конца сессии. Ровно это и случалось с уровнем, созданным в панели, но
+        // не отправленным на сервер: PUT по несуществующему id, 404, и так по
+        // кругу.
+        //
+        // Такую правку выкидываем и идём дальше, а автору говорим вслух: она
+        // потеряна, и молчать об этом — худшее из возможного.
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+          queue.shift()
+          write(KEY, queue)
+          queueState.pending = queue.length
+          queueState.status = 'offline'
+          queueState.error = `Не сохранилось: ${e.message}`
+          announce()
+          setTimeout(drain, 0)
+
+          return
+        }
+
         // Сеть или сервер. Ничего не выбрасываем: правка остаётся первой в
         // очереди и уйдёт при следующей попытке.
         queueState.status = 'offline'
@@ -148,11 +169,17 @@ async function drain() {
 }
 
 async function send(op) {
-  const version = versionOf(op.storyId)
-  const body = { ...op.body, version }
+  // Версия — свойство истории: она защищает от того, что двое правят одну
+  // историю с разных вкладок. У правок без истории (полка ассетов — она общая
+  // и ничьей истории не принадлежит) сравнивать нечего, и слать номер, который
+  // ни с чем не сверяется, значит делать вид, что защита есть.
+  const body = op.storyId === null
+    ? op.body
+    : { ...op.body, version: versionOf(op.storyId) }
+
   const result = await api[op.method](op.path, body)
 
-  if (result && typeof result.version === 'number') {
+  if (op.storyId !== null && result && typeof result.version === 'number') {
     setVersion(op.storyId, result.version)
   }
 }

@@ -428,7 +428,7 @@ export class Physics {
   _sub(h) {
     const s = this.store
     const n = s.n
-    const g = this._g
+    const _g = this._g
     const kd = Math.exp(-this.drag * h)
     this.substep++
 

@@ -7,18 +7,26 @@ import { check } from './assert.mjs'
 // История с развилкой:
 //   Пролог ──▶ Развилка ──(мирный конец)──▶ Мирная ──▶ конец
 //                       └─(тёмный конец)──▶ Тёмная ──▶ конец
-// В каждой главе по паре уровней; выход главы — узел с привязкой next.
+// В каждой главе по паре уровней. Связи идут от точки к точке и могут уходить
+// в соседнюю главу — отдельной «привязки главы» больше нет.
+const nd = (l) => 'nd-' + l
 const ch = (id, levels, edges, exits = {}) => ({
   id,
-  nodes: levels.map((l) => ({ levelId: l, ...(exits[l] ? { next: exits[l] } : {}) })),
-  edges: edges.map(([from, to]) => ({ from, to })),
+  nodes: levels.map((l) => ({
+    id: nd(l),
+    levelId: l,
+    next: [
+      ...edges.filter(([from]) => from === l).map(([, to]) => nd(to)),
+      ...(exits[l] ? [nd(exits[l])] : []),
+    ],
+  })),
 })
 
 const chapters = [
-  ch('prolog', ['p1', 'p2'], [['p1', 'p2']], { p2: 'razvilka' }),
+  ch('prolog', ['p1', 'p2'], [['p1', 'p2']], { p2: 'r1' }),
   // в развилке две ветки, и каждая ведёт в свою главу
   ch('razvilka', ['r1', 'mir', 'tьma'], [['r1', 'mir'], ['r1', 'tьma']],
-    { mir: 'mirnaya', 'tьma': 'temnaya' }),
+    { mir: 'm1', 'tьma': 't1' }),
   ch('mirnaya', ['m1', 'm2'], [['m1', 'm2']]),
   ch('temnaya', ['t1', 't2'], [['t1', 't2']]),
 ]

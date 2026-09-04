@@ -85,7 +85,7 @@ console.log('   peers() отдаёт только своих:', inst.ctx.peers()
 
 // 6. неизвестный тип не теряется молча
 const w2 = new World({ width: 100, height: 100, entities: [{ id: 'x', type: 'нет-такой', data: {} }] })
-let told = null
+let _told = null
 new World({ width: 100, height: 100, entities: [] }).on(EVENTS.missing, () => {})
 console.log('6. про неизвестный тип мир сообщает:', w2.missing.join(',') === 'нет-такой')
 

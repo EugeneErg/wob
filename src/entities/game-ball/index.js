@@ -19,7 +19,7 @@ const llen = (l) => Math.hypot(l.a.x - l.b.x, l.a.y - l.b.y) || 1e-9
 
 export default defineEntity({
   type: 'game-ball',
-  title: 'Игровой шар',
+  title: 'Game ball',
   z: LAYERS.body,
   icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor"/><circle cx="9.7" cy="10.5" r="2" fill="#fff"/><circle cx="14.3" cy="10.5" r="2" fill="#fff"/></svg>',
 
@@ -156,7 +156,7 @@ export default defineEntity({
     if (st === 'walk' || ghost) {
       out.push({ k: 'circle', layer, x, y, r: r + 4, fill: 'none', stroke: ok ? '#ffd9a0' : '#c0563a', sw: 2, opacity: 0.55 })
     }
-    const body = []
+    const _body = []
     const alpha = data.opacity ?? 1
     const moving = st === 'walk' || (st === 'free' && !rt?.asleep)
     const sq = moving ? ((rt?.gait ?? 1) - 0.5) * 0.26 : 0
@@ -263,22 +263,22 @@ export default defineEntity({
     deleteHandles: () => false,
 
     props: () => [
-      { key: 'mass', label: 'Вес свободного', type: 'range', min: -4, max: 6, step: 0.1, global: true },
-      { key: 'builtMass', label: 'Вес в конструкции (минус — летает)', type: 'range', min: -8, max: 6, step: 0.1, global: true },
-      { key: 'sleepMass', label: 'Вес спящего', type: 'range', min: -8, max: 20, step: 0.1, global: true },
-      { key: 'anchorable', label: 'К нему можно цепляться', type: 'bool', global: true },
-      { key: 'asleep', label: 'Спящий', type: 'bool' },
-      { key: 'minLinks', label: 'Связей минимум', type: 'number', min: 1, max: 6, step: 1 },
-      { key: 'maxLinks', label: 'Связей максимум', type: 'number', min: 1, max: 6, step: 1 },
-      { key: 'range', label: 'Дальность связи', type: 'range', min: 60, max: 400, step: 5 },
-      { key: 'jump', label: 'Прыжок', type: 'range', min: 0, max: 900, step: 10 },
-      { key: 'speed', label: 'Скорость шага', type: 'range', min: 20, max: 300, step: 5 },
-      { key: 'dropMax', label: 'Не прыгает вниз выше', type: 'range', min: 0, max: 600, step: 10 },
-      { key: 'r', label: 'Радиус свободного', type: 'range', min: 8, max: 40, step: 1 },
-      { key: 'builtR', label: 'Радиус в конструкции', type: 'range', min: 8, max: 60, step: 1 },
-      { key: 'sleepR', label: 'Радиус спящего', type: 'range', min: 6, max: 60, step: 1 },
-      { key: 'opacity', label: 'Прозрачность', type: 'range', min: 0.15, max: 1, step: 0.05 },
-      { key: 'color', label: 'Цвет', type: 'color' },
+      { key: 'mass', label: 'Weight when free', type: 'range', min: -4, max: 6, step: 0.1, global: true },
+      { key: 'builtMass', label: 'Weight in a structure (negative floats)', type: 'range', min: -8, max: 6, step: 0.1, global: true },
+      { key: 'sleepMass', label: 'Weight when asleep', type: 'range', min: -8, max: 20, step: 0.1, global: true },
+      { key: 'anchorable', label: 'Can be linked to', type: 'bool', global: true },
+      { key: 'asleep', label: 'Asleep', type: 'bool' },
+      { key: 'minLinks', label: 'Minimum links', type: 'number', min: 1, max: 6, step: 1 },
+      { key: 'maxLinks', label: 'Maximum links', type: 'number', min: 1, max: 6, step: 1 },
+      { key: 'range', label: 'Link range', type: 'range', min: 60, max: 400, step: 5 },
+      { key: 'jump', label: 'Jump', type: 'range', min: 0, max: 900, step: 10 },
+      { key: 'speed', label: 'Walking speed', type: 'range', min: 20, max: 300, step: 5 },
+      { key: 'dropMax', label: 'Will not drop further than', type: 'range', min: 0, max: 600, step: 10 },
+      { key: 'r', label: 'Radius when free', type: 'range', min: 8, max: 40, step: 1 },
+      { key: 'builtR', label: 'Radius in a structure', type: 'range', min: 8, max: 60, step: 1 },
+      { key: 'sleepR', label: 'Radius when asleep', type: 'range', min: 6, max: 60, step: 1 },
+      { key: 'opacity', label: 'Opacity', type: 'range', min: 0.15, max: 1, step: 0.05 },
+      { key: 'color', label: 'Color', type: 'color' },
     ],
   },
 })

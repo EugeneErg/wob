@@ -12,73 +12,74 @@ globalThis.localStorage = {
 }
 
 const { check } = await import('./assert.mjs')
+
+// В проверках сервера нет, а имена выдаёт он. Считаем сами — так видно, что
+// библиотека их только раскладывает, а не придумывает.
+let minted = 0
+const mint = (p) => `${p}-t${++minted}`
 const lib = await import('../src/core/library.js')
 const { seed } = await import('./seed.mjs')
 seed(lib)
-const { deadEnds, exitNodes, needsRouting, isAnyPercent, categoryOf } = await import('../src/core/chain.js')
+const { endingNodes, exitNodes, _isAnyPercent, categoryOf } = await import('../src/core/chain.js')
 
 seed(lib)
 
 // Две главы: из первой выход во вторую
-const { story } = lib.createStory('Проверка')
-const a = lib.createChapter(story.id, 'Первая')
-const b = lib.createChapter(story.id, 'Вторая')
-const l1 = lib.createLevel(a.id, 'Развилка')
-const l2 = lib.createLevel(a.id, 'Настоящий конец')
-const l3 = lib.createLevel(a.id, 'Боковой тупик')
+const { story } = lib.createStory({ id: mint('story'), chapterId: mint('ch') }, 'Проверка')
+const a = lib.createChapter(story.id, mint('ch'), 'Первая')
+const b = lib.createChapter(story.id, mint('ch'), 'Вторая')
+const l1 = lib.createLevel(a.id, { id: mint('lvl'), nodeId: mint('nd') }, 'Развилка')
+const l2 = lib.createLevel(a.id, { id: mint('lvl'), nodeId: mint('nd') }, 'Настоящий конец')
+const l3 = lib.createLevel(a.id, { id: mint('lvl'), nodeId: mint('nd') }, 'Боковой тупик')
 
-// createLevel связывает уровни в цепочку — уберём лишнее и сделаем развилку
-a.edges = [{ from: l1.id, to: l2.id }, { from: l1.id, to: l3.id }]
+// Точку ищем по уровню: здесь каждый уровень стоит в одном месте.
+const nd = (ch, levelId) => ch.nodes.find((n) => n.levelId === levelId).id
+
+// createLevel связывает точки в цепочку — сделаем развилку
+a.nodes.find((n) => n.levelId === l1.id).next = [nd(a, l2.id), nd(a, l3.id)]
+a.nodes.find((n) => n.levelId === l2.id).next = []
+a.nodes.find((n) => n.levelId === l3.id).next = []
 lib.save()
 
-console.log('до привязки:')
-console.log('  тупиков:', deadEnds(a).length, '| выходов:', exitNodes(a).length)
-console.log('  главе нужна рука автора:', needsRouting(a))
-console.log('  зачёт за настоящий конец:', categoryOf(a, new Set([l1.id, l2.id])), '(нет: концы неразличимы)')
+console.log('до связи наружу:')
+console.log('  финалов:', endingNodes(a).length, '| выходов:', exitNodes(a).length)
+console.log('  оба конца засчитываются:',
+  categoryOf(a, new Set([nd(a, l1.id), nd(a, l2.id)])),
+  categoryOf(a, new Set([nd(a, l1.id), nd(a, l3.id)])))
 
-// Автор привязывает продолжение к настоящему концу
-a.nodes.find((n) => n.levelId === l2.id).next = b.id
+// Автор ведёт настоящий конец в следующую главу
+const l4 = lib.createLevel(b.id, { id: mint('lvl'), nodeId: mint('nd') }, 'Продолжение')
+a.nodes.find((n) => n.levelId === l2.id).next = [nd(lib.chapter(b.id), l4.id)]
 lib.save()
 
-console.log('\nпосле привязки:')
-console.log('  выходов:', exitNodes(a).length, '| тупиков:', deadEnds(a).map((id) => lib.level(id).name).join(', '))
-console.log('  через настоящий конец:', categoryOf(a, new Set([l1.id, l2.id])))
-console.log('  через тупик:', categoryOf(a, new Set([l1.id, l3.id])), '(тупик главу не завершает)')
+console.log('\nпосле связи наружу:')
+console.log('  выходов:', exitNodes(a).length, '| финалов:', endingNodes(a).map((id) => lib.level(a.nodes.find((n) => n.id === id).levelId).name).join(', '))
 
-// --- цель привязки удалена ---------------------------------------------------
+// --- цель связи удалена ------------------------------------------------------
 lib.removeChapter(b.id)
 const a2 = lib.chapter(a.id)
 console.log('\nпосле удаления главы, в которую вели:')
-check('удалили главу — привязка на неё снята', !a2.nodes.some((n) => n.next))
-console.log('  узел снова тупик:', deadEnds(a2).length === 2)
-console.log('  и зачёта больше нет:', isAnyPercent(a2, new Set([l1.id, l2.id])) === false)
+check('удалили главу — связь на неё снята', !a2.nodes.some((n) => (n.next || []).length && n.levelId === l2.id))
+console.log('  точка снова финал:', endingNodes(a2).length === 2)
+check('и выходов из главы не осталось', exitNodes(a2).length === 0)
 
-// --- импорт с переименованием ------------------------------------------------
-// Возвращаем привязку и выгружаем историю, потом ввозим её обратно: id
-// столкнутся и будут переименованы. Привязка обязана указывать на ввезённую
-// главу, а не на прежнюю.
-const b2 = lib.createChapter(story.id, 'Вторая снова')
-lib.chapter(a.id).nodes.find((n) => n.levelId === l2.id).next = b2.id
+// --- ввоз с переименованием --------------------------------------------------
+// Возвращаем связь наружу и выгружаем историю, потом ввозим её обратно: id
+// столкнутся и будут переименованы. Связь обязана указывать на ввезённую точку,
+// а не на прежнюю.
+const b2 = lib.createChapter(story.id, mint('ch'), 'Вторая снова')
+const l5 = lib.createLevel(b2.id, { id: mint('lvl'), nodeId: mint('nd') }, 'Продолжение снова')
+lib.chapter(a.id).nodes.find((n) => n.levelId === l2.id).next = [nd(lib.chapter(b2.id), l5.id)]
 lib.save()
 
 const bundle = JSON.parse(JSON.stringify(lib.exportStory(story.id)))
 const added = lib.importBundle(bundle)
-const copyStory = added[0]
-const copyChapters = lib.chaptersOf(copyStory.id)
+const copyChapters = lib.chaptersOf(added[0].id)
 const copyA = copyChapters.find((c) => c.title === 'Первая')
-const link = copyA.nodes.find((n) => n.next)
+const link = copyA.nodes.find((n) => (n.next || []).length && !copyA.nodes.some((m) => m.id === n.next[0]))
+const allCopyNodes = new Set(copyChapters.flatMap((c) => c.nodes.map((n) => n.id)))
 
-console.log('\nпосле экспорта и ввоза обратно:')
-console.log('  привязка приехала:', !!link)
-check('после ввоза привязка ведёт во ввезённую главу, а не в исходную',
-  link.next !== b2.id && copyChapters.some((c) => c.id === link.next))
-console.log('  цель существует:', !!lib.chapter(link.next))
-
-// --- ввезли главу без её продолжения ----------------------------------------
-// Выгружаем ТОЛЬКО первую главу: та, в которую она выводит, в пакет не попадёт.
-const onlyA = JSON.parse(JSON.stringify(lib.exportChapter(a.id)))
-const added2 = lib.importBundle(onlyA)
-const lone = lib.chaptersOf(added2[0].id)[0]
-console.log('\nввезли главу без её продолжения:')
-check('ввезли главу без продолжения — ссылка в никуда снята', !lone.nodes.some((n) => n.next))
-console.log('  (автор привяжет заново — это честнее, чем выход в пустоту)')
+console.log('\nпосле выгрузки и ввоза обратно:')
+console.log('  связь приехала:', !!link)
+check('после ввоза связь ведёт во ввезённую точку, а не в исходную',
+  !!link && allCopyNodes.has(link.next[0]))

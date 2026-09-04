@@ -1,9 +1,11 @@
+/* eslint-disable no-sparse-arrays -- пропущенный нулевой индекс здесь смысл, а не
+   опечатка: mine[1] — первый шар, mine[2] — второй. Сдвигать на единицу при
+   каждом чтении хуже, чем оставить нулевую ячейку пустой. */
 // Гонка с призраком. Проверяем два свойства: призрак не влияет на игру
 // и отставание считается на общих отметках, а не по номеру тика.
 import '../src/entities/index.js'
 import { Run, replayOf, PLAY } from '../src/core/run.js'
 import { EVENTS } from '../src/core/globals.js'
-import { level } from './level.mjs'
 import { formatTime } from '../src/core/replays.js'
 import { gapAt, commonSplits, allGaps } from '../src/core/splits.js'
 import { check } from './assert.mjs'

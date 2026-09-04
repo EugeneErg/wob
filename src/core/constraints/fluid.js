@@ -26,7 +26,7 @@ const SCORR = 0.03      // искусственное давление прот�
 // бывает отрицательным: вода не тянет, она кавитирует. Но у самой поверхности
 // небольшая тяга нужна, иначе верхний ряд «сдувает».
 const TENSILE = 0.05
-const FILM = 0.5        // жёсткость плёнки на свободной поверхности
+const _FILM = 0.5        // жёсткость плёнки на свободной поверхности
 const MAXN = 48         // потолок соседей на частицу
 const BUOY = 1        // сила выталкивания: 1 — как в жизни
 const SURF = 0.5        // порог |∇C|·h, за которым частица считается поверхностной
@@ -40,12 +40,12 @@ function applyDelta(F, s, m) {
     // Всё, что нужно внутреннему циклу, — в локальные переменные, и ни одного
     // деления: обратные величины считаются один раз. Свойство объекта и
     // деление стоят в горячем цикле дороже всей остальной арифметики вместе.
-    const P6 = m.POLY6, SP = m.SPIKY, h = m.h, h2 = m.h2
+    const _P6 = m.POLY6, _SP = m.SPIKY, h = m.h, _h2 = m.h2
     const invWq = 1 / m.wq, invRest = 1 / m.rest0, K = m.K
     const bl = m.btab.l, binv = m.btab.inv, blast = bl.length - 1
     dx.fill(0, m._from, m._to); dy.fill(0, m._from, m._to)
     for (let a = m._from; a < m._to; a++) {
-      const i = idx[a]
+      const _i = idx[a]
       const xi = cx[a], yi = cy[a], la = lam[a]
       let ax = 0, ay = 0
       const base = a * MAXN, cnt = nc[a]
@@ -279,7 +279,7 @@ export class FluidDensity {
   // контакт её найдёт, — он в своей подготовке только сбрасывает расстояние,
   // а пишет уже в проекции. Собранное здесь было бы «стенки нет».
   _gather(s) {
-    const { idx, cx, cy, cm, cw, cbs, cbnx, cbny } = this
+    const { idx, cx, cy, cm, cw, _cbs, _cbnx, _cbny } = this
     const X = s.x, Y = s.y, M = s.mass, W = s.w
     for (let a = 0, n = this.count; a < n; a++) {
       const i = idx[a]
@@ -397,7 +397,7 @@ export class FluidDensity {
     // перечитывать на каждой итерации.
     const from = m._from, to = m._to
     for (let a = from; a < to; a++) {
-      const i = idx[a]
+      const _i = idx[a]
       const xi = cx[a], yi = cy[a]
       let r = P6 * h2 * h2 * h2 * cm[a]
       let wn = P6 * h2 * h2 * h2          // счётная плотность: без масс
@@ -464,7 +464,7 @@ export class FluidDensity {
   _film(s, m) {
     const st = m.film
     if (st <= 0) return
-    const { idx, nbr, nc, dx, dy, surf, snx, sny, cx, cy, cw } = this
+    const { _idx, nbr, nc, dx, dy, surf, snx, sny, cx, cy, cw } = this
     const h2 = m.h2
     const lim = 0.04 * m.spacing   // без клипа связь идёт вразнос при жёсткости выше 0.35
     dx.fill(0, m._from, m._to); dy.fill(0, m._from, m._to)
@@ -539,7 +539,7 @@ export class FluidDensity {
 
   _visc(s, m, h) {
     const { idx, nbr, nc, rho, cx, cy, cm, cvx, cvy, buoy } = this
-    const P6 = m.POLY6, h2 = m.h2, hh = m.h, SP = m.SPIKY
+    const P6 = m.POLY6, h2 = m.h2, hh = m.h, _SP = m.SPIKY
     const selfW = P6 * h2 * h2 * h2
     const rest0 = m.rest0, rhoU = m.rhoUnit, invRest = 1 / m.rest0
     const visc = m.viscosity, coh = m.cohesion, adh = m.adhesion

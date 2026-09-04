@@ -67,7 +67,38 @@ async function request(method, path, body) {
   return data
 }
 
+// Загрузка файла. Отдельно от request(), потому что тело здесь FormData:
+// Content-Type для неё выставляет сам браузер вместе с границей multipart, и
+// задать его вручную значит отправить запрос, который сервер не разберёт.
+async function upload(path, file) {
+  await ensureCsrf()
+  const token = cookie('XSRF-TOKEN')
+  const form = new FormData()
+  form.append('file', file)
+
+  const res = await fetch(path, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { 'X-XSRF-TOKEN': decodeURIComponent(token) } : {}),
+    },
+    body: form,
+  })
+
+  const text = await res.text()
+  const data = text ? JSON.parse(text) : null
+
+  if (!res.ok) {
+    const err = data?.error || {}
+    throw new ApiError(res.status, err.code || 'error', err.message || `HTTP ${res.status}`, data)
+  }
+
+  return data
+}
+
 export const api = {
+  upload,
   get: (path) => request('GET', path),
   post: (path, body) => request('POST', path, body),
   patch: (path, body) => request('PATCH', path, body),

@@ -1,24 +1,28 @@
 <template>
   <div class="account">
-    <!-- Бэкенда может не быть вовсе: игра обязана работать без него, поэтому
-         панель просто молчит, а не ругается на всю страницу. -->
+    <!-- Nothing to sign in with: the panel stays quiet rather than shouting
+         across the page. It used to say the game had to work without a backend
+         at all — that is not true and has not been for a while. Stories live in
+         the account, covers and films are uploaded, and the shelf is fetched;
+         what survives is tolerance for the sign-in button being unconfigured in
+         a local build. -->
     <p v-if="session.status === 'unconfigured'" class="hint">
-      Облако выключено — не задан <code>VITE_GOOGLE_CLIENT_ID</code>.
+      Cloud is off — <code>VITE_GOOGLE_CLIENT_ID</code> is not set.
     </p>
 
     <template v-else-if="session.status === 'signed-in'">
       <div class="who">
         <img v-if="session.user.avatar" :src="session.user.avatar" alt="" />
         <span class="name">{{ session.user.name }}</span>
-        <button class="link" @click="signOut">выйти</button>
+        <button class="link" @click="signOut">sign out</button>
       </div>
 
       <div class="sync">
         <button class="btn small" :disabled="busy" @click="upload">
-          Загрузить библиотеку в облако
+          Upload library to the cloud
         </button>
         <button class="btn small" :disabled="busy" @click="download">
-          Забрать из облака
+          Fetch from the cloud
         </button>
       </div>
 
@@ -29,7 +33,7 @@
     </template>
 
     <template v-else>
-      <p class="hint">Войдите, чтобы держать библиотеку в аккаунте.</p>
+      <p class="hint">Sign in to keep your library in your account.</p>
       <div ref="buttonHost" class="gbtn" />
     </template>
 
@@ -62,8 +66,8 @@ onMounted(async () => {
   if (session.status === 'anonymous') await mountButton()
 })
 
-// После выхода кнопку нужно нарисовать заново: Google рисует её в конкретный
-// узел, а этого узла в дереве только что не было.
+// After signing out the button has to be drawn again: Google renders it into
+// one specific node, and that node was not in the tree a moment ago.
 watch(() => session.status, (s) => { if (s === 'anonymous') mountButton() })
 
 async function upload() {
@@ -75,8 +79,8 @@ async function upload() {
     const r = await uploadLibrary()
     const renamed = Object.entries(r.idMap || {}).filter(([a, b]) => a !== b).length
     note.value = renamed
-      ? `Загружено историй: ${r.stories.length}. Переименовано id: ${renamed} — ничего не затёрлось.`
-      : `Загружено историй: ${r.stories.length}.`
+      ? `Stories uploaded: ${r.stories.length}. Ids renamed: ${renamed} — nothing was overwritten.`
+      : `Stories uploaded: ${r.stories.length}.`
     warnings.value = r.warnings || []
   } catch (e) {
     session.error = e.message
@@ -92,7 +96,7 @@ async function download() {
 
   try {
     await downloadLibrary()
-    note.value = 'Забрали. Библиотека пополнилась — старое на месте, копии добавились рядом.'
+    note.value = 'Fetched. The library grew — the old entries stayed, the copies landed beside them.'
   } catch (e) {
     session.error = e.message
   } finally {

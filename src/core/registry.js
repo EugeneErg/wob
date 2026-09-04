@@ -33,7 +33,7 @@ export function defineEntity(def) {
     ...def,
     editor: def.editor || {},
   }
-  if (byType.has(e.type)) throw new Error(`Сущность "${e.type}" уже зарегистрирована`)
+  if (byType.has(e.type)) throw new Error(`Entity "${e.type}" is already registered`)
   byType.set(e.type, e)
   order.push(e)
   return e

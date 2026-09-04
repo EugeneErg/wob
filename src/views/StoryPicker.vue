@@ -4,14 +4,27 @@
       <button class="btn ghost small" @click="$emit('back')">← Menu</button>
       <h2>{{ mode === 'play' ? (intent === 'speedrun' ? 'Speedrun' : 'Stories') : 'Story editor' }}</h2>
       <template v-if="mode === 'edit'">
-        <button class="btn small" @click="doImport">Open a file</button>
-        <button class="btn small" @click="dump">Export everything</button>
-        <button class="btn small primary" @click="add">New story</button>
+        <button class="btn small primary" @click="opening = true">New story</button>
       </template>
     </header>
 
-    <ul class="grid">
-      <li v-for="s in list" :key="s.id" class="card">
+    <!--
+      В игровом режиме список разделён, потому что это разные вещи, а не разные
+      строки одного списка. Канон — то, что игра предлагает как своё; чужое
+      опубликованное — то, что сделали другие; черновики — то, что автор ещё не
+      выпускал, и играть их можно только ему.
+
+      Раньше всё лежало одной кучей: собственный черновик стоял рядом с каноном
+      и выглядел его частью.
+    -->
+    <template v-for="group in groups" :key="group.key">
+      <h3 v-if="mode === 'play' && group.items.length" class="group">
+        {{ group.title }}
+        <span class="group-note">{{ group.note }}</span>
+      </h3>
+
+      <ul v-if="group.items.length" class="grid">
+        <li v-for="s in group.items" :key="s.id" class="card">
         <div class="cover" :style="coverStyle(s.cover)" @click="$emit('open', s.id, false)">
           <span class="badge">{{ chapters(s.id).length }} chapters · {{ levelCount(s.id) }} levels</span>
           <span v-if="mode === 'play'" class="progress">{{ done(s.id) }} / {{ levelCount(s.id) }}</span>
@@ -41,29 +54,42 @@
             <button v-else class="btn small primary" @click="$emit('open', s.id)">Open</button>
             <template v-if="mode === 'edit'">
               <button class="btn small" @click="cover(s)">Cover</button>
-              <button class="btn small" @click="save(s)">Save to file</button>
               <button class="btn small danger" @click="drop(s)">Delete</button>
             </template>
           </div>
         </div>
-      </li>
-    </ul>
+        </li>
+      </ul>
+    </template>
 
     <footer v-if="mode === 'edit'" class="foot">
       <button class="btn ghost small" @click="factory">Restore the built-in content</button>
       <span class="note">Opening a file always adds — nothing is ever overwritten.</span>
     </footer>
   </div>
+
+  <CreateSheet
+    v-if="opening"
+    heading="New story"
+    placeholder="What is it called"
+    :slots="storySlots"
+    @close="opening = false"
+    @create="add"
+  />
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as lib from '../core/library.js'
 import { loadCatalog, loadStory } from '../core/catalog.js'
-import { createStory, deleteStory } from '../core/authoring.js'
+import { downloadLibrary } from '../core/cloud.js'
+import { deleteStory } from '../core/authoring.js'
+import { makeStory } from '../core/making.js'
 import { session } from '../core/session.js'
+import CreateSheet from '../components/CreateSheet.vue'
 import { loadState } from '../core/debug.js'
-import { downloadJSON, pickJSON, pickImage, fileName, coverStyle } from '../core/fileio.js'
+import { pickJSON, coverStyle } from '../core/fileio.js'
+import { pickMedia } from '../core/media.js'
 
 const props = defineProps({
   mode: { type: String, default: 'play' },
@@ -74,29 +100,84 @@ const props = defineProps({
 const emit = defineEmits(['back', 'open'])
 
 const list = ref(lib.stories())
+const shelf = ref(null)
 const refresh = () => (list.value = lib.stories())
+
+// Разделение опирается на каталог: сервер и так отдаёт канон и опубликованное
+// по отдельности, а всё, чего в нём нет, — черновики этого автора.
+const groups = computed(() => {
+  if (props.mode === 'edit') return [{ key: 'all', title: '', note: '', items: list.value }]
+
+  const canon = new Set((shelf.value?.canon || []).map((x) => x.id))
+  const published = new Set((shelf.value?.published || []).map((x) => x.id))
+
+  return [
+    {
+      key: 'canon',
+      title: 'Canon',
+      note: 'the way the story goes',
+      items: list.value.filter((s) => canon.has(s.id)),
+    },
+    {
+      key: 'published',
+      title: 'Published',
+      note: 'made by other people',
+      items: list.value.filter((s) => !canon.has(s.id) && published.has(s.id)),
+    },
+    {
+      key: 'drafts',
+      title: 'Your drafts',
+      note: 'not published — only you can play these',
+      items: list.value.filter((s) => !canon.has(s.id) && !published.has(s.id)),
+    },
+  ]
+})
 
 // Содержимое приходит с сервера, и до ответа показывать нечего.
 const loading = ref(false)
 const failed = ref(null)
 
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+
 onMounted(async () => {
-  // В редакторе каталог не нужен: там свои черновики, которые живут здесь.
-  if (props.mode === 'edit') return
+  if (props.mode === 'edit') {
+    // Черновики автора лежат в аккаунте, а не в браузере. Комментарий здесь
+    // раньше утверждал обратное — «свои черновики, которые живут здесь», — и
+    // из-за этого редактор ничего не запрашивал: после очистки кук человек
+    // входил заново и не находил ничего из сделанного, хотя всё лежало на
+    // сервере.
+    if (session.status !== 'signed-in') return
+
+    loading.value = true
+    failed.value = null
+
+    try {
+      await downloadLibrary()
+      refresh()
+    } catch (e) {
+      failed.value = e.message
+    } finally {
+      loading.value = false
+    }
+
+    return
+  }
 
   loading.value = true
   failed.value = null
 
   try {
-    const shelf = await loadCatalog({ force: true })
+    const fresh = await loadCatalog({ force: true })
+    shelf.value = fresh
 
     // Каждую историю подтягиваем целиком: без глав и уровней карточка знает
     // только заголовок, а список показывает, сколько внутри.
-    for (const story of [...shelf.canon, ...shelf.published]) {
+    for (const story of [...fresh.canon, ...fresh.published]) {
       await loadStory(story.id)
     }
 
-    preview.value = shelf.preview
+    preview.value = fresh.preview
     refresh()
   } catch (e) {
     failed.value = e.message
@@ -112,13 +193,29 @@ const chapters = (id) => lib.chaptersOf(id)
 const levelCount = (id) => chapters(id).reduce((n, c) => n + c.nodes.length, 0)
 const done = (id) => chapters(id).reduce((n, c) => n + c.nodes.filter((x) => lib.isDone(x.levelId)).length, 0)
 
-function add() {
-  const { story } = lib.createStory()
-  refresh()
+// The story's film is the only one that plays before anything is touched, so it
+// is asked for here rather than found in a settings screen later.
+const opening = ref(false)
+const storySlots = [
+  { key: 'cover', label: 'Cover', cta: 'Choose a picture', kind: 'image' },
+  { key: 'intro', label: 'Opening film', cta: 'Choose a video', kind: 'video' },
+]
 
-  // Straight to the server, as its own write. Nothing an author makes should
-  // exist only in this browser — a closed tab used to take the lot.
-  if (session.status === 'signed-in') createStory(story, lib.chaptersOf(story.id)[0])
+async function add({ title, ...extra }) {
+  opening.value = false
+  failed.value = null
+
+  let story
+  try {
+    // Сначала сервер: имя выдаёт он, и до ответа класть к себе нечего.
+    ;({ story } = await makeStory(title, extra))
+  } catch (e) {
+    failed.value = e.message
+
+    return
+  }
+
+  refresh()
 
   emit('open', story.id)
 }
@@ -132,35 +229,47 @@ function drop(s) {
   refresh()
 }
 async function cover(s) {
-  const url = await pickImage().catch(() => null)
+  const url = await pickMedia().catch((e) => { alert(e.message); return null })
   if (url) { s.cover = url; persist(); refresh() }
 }
-const save = (s) => downloadJSON(lib.exportStory(s.id), fileName('story', s.title))
-const dump = () => downloadJSON(lib.exportAll(), 'goo-library')
-async function doImport() {
+// Loading a debug dump. Deliberately not a button.
+//
+// Story files no longer come in from disk at all — stories are made in the
+// editor and live in the account — so the only thing left worth reading off a
+// disk is a dump, and that is a maintenance tool, not a feature. It answers to
+// F10 on the library screen, mirroring the F10 that writes a dump in game: a
+// key that nobody presses by accident and no menu advertises.
+//
+// It replaces everything rather than adding, which is the whole point — the
+// reported state has to be reproduced exactly — and that is also why it stays
+// out of reach of anyone who has not been told about it.
+async function loadDump() {
   try {
     const data = await pickJSON()
 
-    // A debug dump (F10 in game) is not a bundle of stories but a snapshot of
-    // everything: library, progress, recordings, releases. The storage field is
-    // what tells them apart. It has to be loaded whole and with a warning,
-    // because it REPLACES rather than adds — otherwise someone else's case
-    // cannot be reproduced.
-    if (data?.storage) {
-      const where = data.now?.levelId ? ` (level ${data.now.levelId}, tick ${data.now.tick ?? '?'})` : ''
-      if (!confirm(`This is a debug dump from ${new Date(data.at).toLocaleString()}${where}.\n\n`
-        + 'Your entire library, progress and recordings will be replaced. Continue?')) return
-      loadState(data)
-      refresh()
-      alert('State loaded. Find the run in the recordings list and watch it back.')
+    // The storage field is what makes a dump a dump. Anything else — including
+    // an old exported story file — is refused rather than guessed at.
+    if (!data?.storage) {
+      alert('That is not a debug dump. Stories are created in the editor, not opened from a file.')
       return
     }
 
-    const added = lib.importBundle(data)
+    const where = data.now?.levelId ? ` (level ${data.now.levelId}, tick ${data.now.tick ?? '?'})` : ''
+    if (!confirm(`This is a debug dump from ${new Date(data.at).toLocaleString()}${where}.\n\n`
+      + 'Your entire library, progress and recordings will be replaced. Continue?')) return
+
+    loadState(data)
     refresh()
-    alert(added.length ? `Added: ${added.map((s) => s.title).join(', ')}` : 'File read')
+    alert('State loaded. Find the run in the recordings list and watch it back.')
   } catch (e) { alert(e.message) }
 }
+
+function onKey(e) {
+  if (e.key !== 'F10') return
+  e.preventDefault()
+  loadDump()
+}
+
 function factory() {
   if (confirm('Your local drafts and progress will be cleared. Continue?')) { lib.resetLibrary(); refresh() }
 }
@@ -177,6 +286,12 @@ function factory() {
 .bar h2 { flex: 1; margin: 0; font-family: var(--font-display); font-size: 26px; }
 .state { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
 .state.err { color: #e0736b; }
+
+.group {
+  margin: 20px clamp(16px, 4vw, 44px) 0; display: flex; align-items: baseline; gap: 10px;
+  font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.group-note { font-size: 11px; letter-spacing: 0; text-transform: none; }
 
 .grid {
   list-style: none; margin: 0; padding: 0 clamp(16px, 4vw, 44px);

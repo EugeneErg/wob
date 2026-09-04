@@ -97,7 +97,7 @@ function sdfGrad(s, x, y, out){
 /* =========================================================================
    core/terrain.js — копаемый грунт: занятость + знаковое расстояние (chamfer)
    ========================================================================= */
-class Terrain {
+class _Terrain {
   constructor(nx, ny, cs, ox, oy){
     this.nx=nx; this.ny=ny; this.cs=cs; this.ox=ox; this.oy=oy;
     const N = nx*ny;
@@ -497,16 +497,16 @@ class FluidSolver {
 
   applyDeltaP(){
     const n=this.n, px=this.px, py=this.py, h=this.h, h2=this.h2;
-    const P6=this.POLY6, SP=this.SPIKY, mass=this.mass, rest=this.rest;
+    const P6=this.POLY6, _SP=this.SPIKY, mass=this.mass, rest=this.rest;
     const nbr=this.nbr, nc=this.nc, MAXN=this.MAXN, lam=this.lam;
     const bs=this.bs, bnx=this.bnx, bny=this.bny;
     const ax=this.ax, ay=this.ay;
     const dq=0.2*h, invWq=1/(P6*Math.pow(h2-dq*dq,3));
-    const invU=1/this.rhoUnit, MD=this.massDensity;
+    const _invU=1/this.rhoUnit, _MD=this.massDensity;
     const nkc=this.nkc, nkw=this.nkw;
     const K=this.tension/this.gradSum;
     for (let i=0;i<n;i++){
-      const xi=px[i], yi=py[i], li=lam[i], mi=mass[i], iri=1/rest[i];
+      const xi=px[i], yi=py[i], li=lam[i], _mi=mass[i], iri=1/rest[i];
       let sx=0, sy=0;
       const base=i*MAXN, cnt=nc[i];
       for (let k=0;k<cnt;k++){
@@ -530,7 +530,7 @@ class FluidSolver {
         // соседями сохраняется и урез не проседает; у одинокой капли ψ≈0 —
         // клея нет, капля падает. Полный запрет притяжения (lb=0) капли лечил,
         // но ронял крайний столбец на треть шага: замерено 3.1 px против 0.3.
-        const ps=this.bpsi[i];
+        const _ps=this.bpsi[i];
         const lb = li<0 ? li : 0;   // решатель стенкой только отталкивает; смачивание — отдельной силой
         const t=this.bTable, k=sb*t.inv|0, g=-t.l[k]*lb;
         sx += g*bnx[i]; sy += g*bny[i];
@@ -650,7 +650,7 @@ class FluidSolver {
     const om=this.om, ax=this.ax, ay=this.ay, bf=this.bf;
     const visc=this.viscosity, coh=this.cohesion, vor=this.vorticity, tp=this.type;
     const adh=this.adhesion;
-    const h4=h*h*h*h;
+    const _h4=h*h*h*h;
 
     if (vor>0){
       for (let i=0;i<n;i++){

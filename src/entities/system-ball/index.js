@@ -7,7 +7,7 @@ import { LAYERS } from '../../core/globals.js'
 
 export default defineEntity({
   type: 'system-ball',
-  title: 'Системный шар',
+  title: 'System ball',
   z: LAYERS.body,
   icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2.5"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/></svg>',
 
@@ -113,7 +113,7 @@ export default defineEntity({
 
     // групповое действие: появляется, когда выделено несколько шаров
     bulk: {
-      label: 'Связать / разорвать',
+      label: 'Link / unlink',
       apply(list) {
         const linked = (a, b) => (a.data.links || []).includes(b.id)
         let all = true
@@ -142,9 +142,9 @@ export default defineEntity({
     },
 
     props: () => [
-      { key: 'static', label: 'Статичный', type: 'bool' },
-      { key: 'r', label: 'Радиус', type: 'range', min: 8, max: 40, step: 1 },
-      { key: 'color', label: 'Цвет', type: 'color' },
+      { key: 'static', label: 'Static', type: 'bool' },
+      { key: 'r', label: 'Radius', type: 'range', min: 8, max: 40, step: 1 },
+      { key: 'color', label: 'Color', type: 'color' },
     ],
   },
 })

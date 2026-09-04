@@ -63,7 +63,7 @@ console.log('по самой записи откат не виден, виден
 // ни мотай, запись не меняется и время не переписывается.
 const sc = new Scrubber(lvl, snap)
 sc.seek(120); while (sc.pump(50)) { /* считаем */ }
-const at120 = sc.tick
+const _at120 = sc.tick
 sc.seek(40); while (sc.pump(50)) { /* считаем */ }
 console.log('\nперемотка в повторе: 120 →', sc.tick, ', запись не тронута:', sc.record.input.length === snap.input.length)
 console.log('  цена перемотки назад, тиков пересчёта:', sc.costOf(0) === 0 ? 0 : 40, '(на этом уровне мгновенно)')

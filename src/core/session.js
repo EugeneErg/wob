@@ -96,74 +96,38 @@ async function initialise() {
   })
 }
 
-/**
- * Start signing in from our own button.
+/*
+ * One Tap отсюда убран, и это стоит объяснить.
  *
- * Google's rendered button is the usual way in, and it is the one control on
- * the page we cannot restyle — which makes it the odd one out in a menu where
- * everything else looks alike. One Tap is the other supported entry point: our
- * button, Google's dialog. Same flow, same token, same checks on the server.
+ * Он был основным входом: наша кнопка вызывала google.accounts.id.prompt(), а
+ * официальная кнопка Google лежала запасным путём. Не работало ни то, ни другое.
  *
- * It can decline to appear — a browser blocking third-party frames, or someone
- * who dismissed it too often — and it says so through the notification rather
- * than by throwing. When that happens the caller is told to fall back to the
- * official button, because a sign-in that silently does nothing is worse than
- * an out-of-place button.
+ * One Tap глохнет — Google отключает его на часы после нескольких закрытий,
+ * браузеры блокируют сами, и тогда его статус-эндпоинт отвечает 403. Узнать об
+ * этом надёжно нельзя: API моментов (isDisplayed, getNotDisplayedReason)
+ * объявлен устаревшим по дороге к FedCM, а в худшем случае коллбэк не вызывается
+ * вовсе. То есть основной путь молча ничего не делал.
  *
- * @returns {Promise<boolean>} whether the dialog actually came up
+ * А запасной, срабатывая, подставлял вторую кнопку «Sign in with Google» внутрь
+ * карточки, уже так озаглавленной.
+ *
+ * Официальная кнопка не нуждается ни в том, ни в другом: она сама несёт «G» и
+ * надпись, работает без разрешения на One Tap и не имеет состояния отказа.
+ * Единственное, чем она хуже, — её нельзя перекрасить под остальные карточки.
+ * Это дешевле, чем вход, который иногда не вход.
  */
-export async function promptSignIn() {
-  await initialise()
 
-  return new Promise((resolve) => {
-    let settled = false
-    const done = (ok) => {
-      if (!settled) {
-        settled = true
-        resolve(ok)
-      }
-    }
-
-    window.google.accounts.id.prompt((notification) => {
-      // The API has renamed these over the years; treat anything that is not a
-      // clear "it is showing" as a reason to fall back.
-      const shown = typeof notification?.isDisplayed === 'function'
-        ? notification.isDisplayed()
-        : notification?.getMomentType?.() === 'display'
-
-      if (!shown) done(false)
-    })
-
-    // Signing in through the dialog resolves this too — the callback above
-    // flips the session, and there is nothing left to fall back to.
-    const watchdog = setInterval(() => {
-      if (session.status === 'signed-in') {
-        clearInterval(watchdog)
-        done(true)
-      }
-    }, 300)
-
-    setTimeout(() => {
-      clearInterval(watchdog)
-      done(true)   // it came up and is waiting for the person; leave it alone
-    }, 4000)
-  })
-}
-
-/**
- * The official Google button, for when One Tap will not show.
- *
- * Google draws it themselves, so it does not match the rest of the menu — but
- * a button that looks slightly foreign is better than no way to sign in.
- */
 export async function renderSignInButton(el) {
   await initialise()
 
+  // Кнопка растягивается под карточку, поверх которой лежит: её саму не видно,
+  // но нажимается именно она, поэтому попасть по ней надо из любой точки.
   window.google.accounts.id.renderButton(el, {
     theme: 'filled_black',
     size: 'large',
     text: 'signin_with',
-    shape: 'pill',
+    shape: 'rectangular',
+    width: Math.round(el.getBoundingClientRect().width) || 400,
   })
 }
 

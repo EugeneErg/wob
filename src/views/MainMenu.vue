@@ -49,22 +49,26 @@
           <p>Draw terrain, wire up contraptions, lay out a chapter map. Share the result as a file.</p>
         </button>
 
-        <!--
-          Signing in is a menu item like the rest, not something tucked into a
-          settings screen. It is a thing you might come here to do; the frame
-          cap is not, which is why only the frame cap moved.
-        -->
-        <button v-if="canSignIn" class="card" :disabled="busy" @click="signIn">
-          <h2>{{ busy ? 'Signing in…' : 'Sign in' }}</h2>
-          <p>Keep your stories and progress across devices. Everything works without it.</p>
-        </button>
+        <!-- Вход. Ваша карточка; настоящая кнопка Google лежит поверх неё. -->
+        <div v-if="canSignIn" class="card signin">
+          <h2>Sign in with Google</h2>
+          <p>Keep your stories and progress across devices.</p>
 
-        <!--
-          Google's own button, shown only when One Tap refused to appear. It
-          does not match the cards, and that is the trade: an out-of-place
-          button beats no way in.
-        -->
-        <div v-show="needsFallback" ref="fallbackHost" class="fallback" />
+          <!--
+            Кнопка Google, растянутая на всю карточку и прозрачная.
+
+            Google не даёт свою кнопку оформить, а кликать должна именно она:
+            собственная кнопка запускала One Tap, который глохнет, и клик молча
+            ничего не делал. Прошлая попытка — показать кнопку Google рядом —
+            дала две кнопки с одной надписью, из которых работала вторая.
+
+            Так карточка выглядит как ваша, а нажимается настоящая кнопка. Цена
+            честная: вёрстка держится на том, что виджет Google занимает
+            прямоугольник целиком, и если Google его переделает, кликабельная
+            область может разъехаться.
+          -->
+          <div ref="host" class="gbtn" />
+        </div>
 
         <!--
           Only for people with an account, because that is the only place
@@ -90,17 +94,15 @@
 <script setup>
 import WorldCanvas from '../components/WorldCanvas.vue'
 import AccountBadge from '../components/AccountBadge.vue'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import demo from '../levels/menu.json' // the menu background is an ordinary level
 import { lastSpot } from '../core/recent.js'
 import { chapter as getChapter, story as getStory } from '../core/library.js'
-import { promptSignIn, refresh, renderSignInButton, session } from '../core/session.js'
+import { refresh, renderSignInButton, session } from '../core/session.js'
 
 defineEmits(['go', 'resume'])
 
-const busy = ref(false)
-const needsFallback = ref(false)
-const fallbackHost = ref(null)
+const host = ref(null)
 
 onMounted(refresh)
 
@@ -111,28 +113,32 @@ const canSignIn = computed(
   () => session.status === 'anonymous' || session.status === 'loading' || session.status === 'unknown',
 )
 
-async function signIn() {
-  busy.value = true
-  session.error = null
+/**
+ * Узел, в который Google рисует свою кнопку.
+ *
+ * Раньше здесь была своя кнопка, запускавшая One Tap, а официальная лежала
+ * запасным путём. Оба бага пришли отсюда: One Tap глохнет — Google отключает
+ * его на часы после нескольких закрытий, браузеры блокируют сами, — и клик
+ * молча ничего не делал. А когда запасной путь срабатывал, он подставлял вторую
+ * кнопку «Sign in with Google» внутрь карточки, уже так озаглавленной: две
+ * кнопки с одной надписью, нажимается вторая.
+ *
+ * Своя кнопка не давала ничего, чего нет у этой: у официальной та же «G» и та
+ * же надпись — то самое, чего не хватало исходной кнопке «Sign in». Зато стоила
+ * целого состояния отказа.
+ *
+ * Дорисовывать надо в узел, которого в дереве ещё не было: карточка появляется
+ * только когда мы уже знаем, что человек не вошёл.
+ */
+watch([canSignIn, host], async ([can, el]) => {
+  if (!can || !el || el.childElementCount) return
 
   try {
-    const shown = await promptSignIn()
-
-    if (!shown) {
-      needsFallback.value = true
-      await nextTick()
-
-      if (fallbackHost.value) {
-        fallbackHost.value.replaceChildren()
-        await renderSignInButton(fallbackHost.value)
-      }
-    }
+    await renderSignInButton(el)
   } catch (e) {
     session.error = e.message
-  } finally {
-    busy.value = false
   }
-}
+}, { immediate: true })
 
 // Resolved against the library each time the menu opens, so a bookmark left
 // pointing at a story that has since been deleted simply does not appear,
@@ -214,7 +220,21 @@ const spot = computed(() => {
 .card p { margin: 3px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
 
 .card[disabled] { opacity: 0.6; cursor: default; }
-.fallback { max-width: 430px; display: flex; justify-content: flex-start; }
+
+/*
+  The mark sits on the heading's baseline row rather than above it, so the card
+  keeps the same shape as its neighbours — the only difference is that this one
+  says who you are signing in with.
+*/
+.signin h2 { display: flex; align-items: center; gap: 9px; }
+.signin { position: relative; }
+
+/* Поверх карточки целиком и невидимо: клик достаётся кнопке Google, а видно
+   при этом карточку. */
+.gbtn {
+  position: absolute; inset: 0; opacity: 0; overflow: hidden;
+}
+.gbtn > * { width: 100% !important; height: 100% !important; }
 .err { max-width: 430px; margin: 0; font-size: 12px; color: #e0736b; }
 
 /* Settings is present but not competing: same shape, less contrast. */

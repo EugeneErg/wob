@@ -5,7 +5,7 @@ const lvl = level('lvl-tower')
 const sh = shapesForLevel(lvl)
 const links = sh.filter((s) => s.layer === LAYERS.structure)
 console.log('связи опор видны в редакторе:', links.length > 0, '| фигур на слое связей:', links.length)
-const idx = (l) => sh.findIndex((s) => (s.layer ?? null) === l)
+const _idx = (l) => sh.findIndex((s) => (s.layer ?? null) === l)
 console.log('порядок слоёв:', [...new Set(sh.map((s) => s.layer ?? 'z'))].join(' → '))
 // труба должна быть под телами
 import { getEntity } from '../src/core/registry.js'

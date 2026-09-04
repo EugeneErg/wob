@@ -13,7 +13,7 @@ const STREAKS = 26
 
 export default defineEntity({
   type: 'wind',
-  title: 'Ветер',
+  title: 'Wind',
   z: LAYERS.overlay - 5,
   icon: '<svg viewBox="0 0 24 24"><path d="M3 8h11a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 18h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
 
@@ -109,14 +109,14 @@ export default defineEntity({
     deleteHandles: () => false,
 
     props: () => [
-      { key: 'ax', label: 'Вектор A, по X', type: 'range', min: -600, max: 600, step: 10 },
-      { key: 'ay', label: 'Вектор A, по Y', type: 'range', min: -600, max: 600, step: 10 },
-      { key: 'bx', label: 'Вектор B, по X', type: 'range', min: -600, max: 600, step: 10 },
-      { key: 'by', label: 'Вектор B, по Y', type: 'range', min: -600, max: 600, step: 10 },
-      { key: 'period', label: 'Секунд на перелив', type: 'range', min: 0.4, max: 30, step: 0.2 },
-      { key: 'force', label: 'Сопротивление воздуха', type: 'range', min: 0, max: 3, step: 0.05 },
-      { key: 'show', label: 'Показывать полоски', type: 'bool' },
-      { key: 'color', label: 'Цвет', type: 'color' },
+      { key: 'ax', label: 'Vector A, X', type: 'range', min: -600, max: 600, step: 10 },
+      { key: 'ay', label: 'Vector A, Y', type: 'range', min: -600, max: 600, step: 10 },
+      { key: 'bx', label: 'Vector B, X', type: 'range', min: -600, max: 600, step: 10 },
+      { key: 'by', label: 'Vector B, Y', type: 'range', min: -600, max: 600, step: 10 },
+      { key: 'period', label: 'Seconds per crossfade', type: 'range', min: 0.4, max: 30, step: 0.2 },
+      { key: 'force', label: 'Air resistance', type: 'range', min: 0, max: 3, step: 0.05 },
+      { key: 'show', label: 'Show streaks', type: 'bool' },
+      { key: 'color', label: 'Color', type: 'color' },
     ],
   },
 })

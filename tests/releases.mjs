@@ -17,10 +17,10 @@ const lib = await import('../src/core/library.js')
 const { seed } = await import('./seed.mjs')
 seed(lib)
 const {
-  publish, releases, latestRelease, drifted, release, levelFrom, chapterFrom,
-  storyHash, levelHash, checkRecord, seedFor,
+  publish, releases, latestRelease, drifted, release, levelFrom, _chapterFrom,
+  _storyHash, levelHash, checkRecord, seedFor,
 } = await import('../src/core/releases.js')
-const { saveRun, bestRun, KIND } = await import('../src/core/replays.js')
+const { saveRun, _bestRun, KIND } = await import('../src/core/replays.js')
 const { contentFor } = await import('../src/core/content.js')
 
 seed(lib)

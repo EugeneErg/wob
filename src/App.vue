@@ -21,21 +21,25 @@
     v-else-if="at === 'stories'"
     :mode="mode" :intent="intent" @back="at = 'menu'" @open="openStory"
   />
-  <ChapterList
-    v-else-if="at === 'chapters'"
-    :mode="mode" :story-id="storyId"
-    :run="chain?.kind === 'story' ? chain : null" :speedrun="speedrun" :sr-scope="srScope"
-    :release-id="releaseId" :release="rel"
-    @back="leaveStory" @open="openChapter" @runs="openRuns"
-    @version="pickVersion"
+  <!--
+    Автор расставляет историю на доске, игрок листает список. Это не два вида
+    одного экрана: игроку нечего двигать, а автору нечего проходить, и общий
+    компонент пришлось бы половину времени держать выключенным.
+  -->
+  <StoryCanvas
+    v-else-if="at === 'chapters' && mode === 'edit'"
+    :story-id="storyId"
+    @back="leaveStory" @open="openChapter" @edit="editLevel"
   />
   <ChapterMap
     v-else-if="at === 'map'"
     :mode="mode" :chapter-id="chapterId"
     :run="chain" :speedrun="speedrun" :sr-scope="srScope" :in-story="chain?.kind === 'story'"
     :release="rel"
+    :release-id="releaseId" :releases="storyReleases" :story-id="storyId"
     @back="leaveChapter" @play="play" @edit="editLevel"
-    @runs="openRuns"
+    @runs="openRuns" @chapter="openChapter" @version="pickVersion"
+    @start="startChapterHere"
   />
   <GameView
     v-else-if="at === 'game'"
@@ -62,7 +66,7 @@
   <EditorView
     v-else-if="at === 'level'"
     :key="levelId" :level-id="levelId" :chapter-id="chapterId" :story-id="storyId"
-    @back="at = 'map'"
+    @back="at = cameFrom"
   />
 
   <!-- The result of an attempt, shown over the map once the chain is done. -->
@@ -82,20 +86,20 @@ import SettingsView from './views/SettingsView.vue'
 import AwardsView from './views/AwardsView.vue'
 import SlotPicker from './views/SlotPicker.vue'
 import StoryPicker from './views/StoryPicker.vue'
-import ChapterList from './views/ChapterList.vue'
+import StoryCanvas from './views/StoryCanvas.vue'
 import ChapterMap from './views/ChapterMap.vue'
 import GameView from './views/GameView.vue'
 import EditorView from './views/EditorView.vue'
 import RunsView from './views/RunsView.vue'
 import {
   level as getLevel, chapter as getChapter,
-  story as getStory, chaptersOf,
+  story as getStory, chaptersOf, isDone,
 } from './core/library.js'
 import {
   ChainRun, categoryOf, segmentRecord,
-  doneByChapter, storyCategoryOf,
+  activeChapter, doneByChapter, storyCategoryOf,
 } from './core/chain.js'
-import { levelHash, release, levelFrom, chapterFrom, latestRelease } from './core/releases.js'
+import { levelHash, release, levelFrom, chapterFrom, latestRelease, releases } from './core/releases.js'
 import { saveRun, formatTime, KIND } from './core/replays.js'
 import { remember } from './core/recent.js'
 import { setProgress } from './core/library.js'
@@ -262,7 +266,7 @@ async function resume(spot) {
     chapterId.value = spot.chapterId
     at.value = 'map'
   } else {
-    at.value = 'chapters'
+    showStory()
   }
 }
 // The mode arrives with the choice: the player pressed "Speedrun" on a story
@@ -289,7 +293,11 @@ async function openStory(id, speedrun = false) {
   }
 
   storyId.value = id
-  remember({ storyId: id, chapterId: null })
+
+  // Закладка «продолжить» — про игру, а не про правку. Редактор, открывая
+  // историю, помечал её как начатую, и в меню появлялось предложение
+  // продолжить уровень, в который никто не играл.
+  if (mode.value === 'play') remember({ storyId: id, chapterId: null })
   chain.value = null      // entering a story asks about the mode again
   srScope.value = null
   slot.value = null
@@ -308,7 +316,7 @@ async function openStory(id, speedrun = false) {
   // the sensible default, and the author's draft can still be chosen explicitly.
   releaseId.value = mode.value === 'play' ? (latestRelease(id)?.id || null) : null
   if (speedrun) startStory(true)
-  at.value = 'chapters'
+  showStory()
 }
 
 // The player chose to take the story as a whole. From here it is one attempt:
@@ -326,7 +334,7 @@ function pickSlot(chosen) {
     startStory(true)
   }
 
-  at.value = 'chapters'
+  showStory()
 }
 
 /**
@@ -352,9 +360,63 @@ async function leaveStory() {
   srScope.value = null
   at.value = 'stories'
 }
-function openChapter(id, speedrun = false) {
+/**
+ * Куда попадает игрок, открыв историю.
+ *
+ * Списка глав больше нет: у редактора история лежит на доске, у игрока — сразу
+ * карта той главы, где он остановился. Промежуточный экран не решал ни одной
+ * задачи, кроме выбора главы, а выбор теперь делается дверями на самой карте,
+ * где рядом видно, куда именно дверь ведёт.
+ */
+/**
+ * Показать историю.
+ *
+ * Редактору — доска, игроку — карта главы, где он остановился. Одно место
+ * принятия этого решения: раньше в четырёх местах стояло at = 'chapters', и
+ * добавить пятое, забыв про режим, было бы вопросом времени.
+ */
+// Опубликованные версии текущей истории. Жил в списке глав; список ушёл, а
+// выбор версии остался нужен — он переехал в шапку карты.
+const storyReleases = computed(() => (storyId.value ? releases(storyId.value) : []))
+
+function showStory() {
+  if (mode.value === 'edit') { at.value = 'chapters'; return }
+  if (!enterActiveChapter()) at.value = 'stories'
+}
+
+function enterActiveChapter() {
+  const story = getStory(storyId.value)
+  const chapters = chaptersOf(storyId.value)
+  if (!story || !chapters.length) return false
+
+  // Внутри попытки считается её собственный прогресс, вне — общий из сохранения.
+  const done = chain.value
+    ? doneByChapter(chain.value)
+    : new Map(chapters.map((c) => [c.id, new Set(c.nodes.filter((n) => isDone(n.levelId)).map((n) => n.id))]))
+  const id = activeChapter(story, chapters, done)
+  if (!id) return false
+
+  openChapter(id)
+
+  return true
+}
+
+// Начать попытку прохождения этой главы. Раньше выбор делался на карточке в
+// списке до входа; теперь игрок уже стоит на карте, поэтому вход и выбор
+// разошлись — и это к лучшему: карту можно посмотреть, ничего не начиная.
+// Игрок уже стоит на карте, поэтому переходить некуда — начинается попытка.
+//
+// Раньше выбор режима шёл через openChapter(id, speedrun), а тот свой второй
+// аргумент не использовал вовсе: startChapter() был написан ровно для этого и
+// не вызывался ниоткуда. То есть спидран главы не запускался и из прежнего
+// списка глав — кнопка была, а попытки не возникало.
+function startChapterHere(speedrun) {
+  startChapter(speedrun)
+}
+
+function openChapter(id) {
   chapterId.value = id
-  remember({ storyId: storyId.value, chapterId: id })
+  if (mode.value === 'play') remember({ storyId: storyId.value, chapterId: id })
   // Inside a story attempt the chain carries on — it belongs to the whole
   // story. With no attempt running, the chapter asks about the mode itself and
   // starts one of its own.
@@ -383,7 +445,10 @@ async function leaveChapter() {
     await abandon()
     if (srScope.value !== 'story') srScope.value = null
   }
-  at.value = 'chapters'
+
+  // У игрока за главой стоит не список, а сама история: он вышел из неё целиком.
+  if (mode.value === 'edit') at.value = 'chapters'
+  else at.value = 'stories'
 }
 
 // An abandoned attempt is recorded too.
@@ -420,7 +485,16 @@ function play(id, speedrun = false) {
   if (!srScope.value) srScope.value = speedrun ? 'level' : null
   at.value = 'game'
 }
-function editLevel(id) { levelId.value = id; at.value = 'level' }
+// Откуда пришли в редактор наполнения. Из карты главы — туда и вернёмся; с
+// доски истории — на доску. Возврат «всегда на карту» уводил бы автора, который
+// нажал плюс в панели, на экран, где он не был.
+const cameFrom = ref('map')
+
+function editLevel(id) {
+  cameFrom.value = at.value === 'chapters' ? 'chapters' : 'map'
+  levelId.value = id
+  at.value = 'level'
+}
 
 // A visit to a level ended: push the segment into the chain and go back to the
 // map. A failed visit is a segment too — it took time.

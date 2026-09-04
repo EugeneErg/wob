@@ -6,7 +6,7 @@ import { bboxOfPoints, pointInPoly, nearestEdgeIndex } from '../../core/geom.js'
 
 export default defineEntity({
   type: 'terrain',
-  title: 'Рельеф',
+  title: 'Terrain',
   z: LAYERS.ground,
   icon: '<svg viewBox="0 0 24 24"><path d="M2 19h20L15 7l-4 6-3-3z" fill="currentColor"/></svg>',
 
@@ -72,9 +72,9 @@ export default defineEntity({
     },
 
     props: () => [
-      { key: 'smoothness', label: 'Гладкость', type: 'range', min: 0, max: 1, step: 0.05, global: true },
-      { key: 'fill', label: 'Заливка', type: 'color' },
-      { key: 'edge', label: 'Кромка', type: 'color' },
+      { key: 'smoothness', label: 'Smoothness', type: 'range', min: 0, max: 1, step: 0.05, global: true },
+      { key: 'fill', label: 'Fill', type: 'color' },
+      { key: 'edge', label: 'Edge', type: 'color' },
     ],
   },
 })

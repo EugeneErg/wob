@@ -25,7 +25,7 @@ const at = (data, i) => data.points[i % data.points.length]
 
 export default defineEntity({
   type: 'rails',
-  title: 'Рельсы',
+  title: 'Rails',
   z: LAYERS.midground,
   icon: '<svg viewBox="0 0 24 24"><path d="M7 3 4 21M17 3l3 18" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 8h18M3 14h18" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>',
 
@@ -150,17 +150,17 @@ export default defineEntity({
     props: (data) => {
       if (data) sync(data)
       return [
-        { key: 'closed', label: 'Замкнуть путь', type: 'bool' },
+        { key: 'closed', label: 'Close the path', type: 'bool' },
         {
-          key: 'segs', type: 'list', label: 'Отрезки',
-          note: 'Скорость в px/с, пауза в секундах в конце отрезка',
+          key: 'segs', type: 'list', label: 'Segments',
+          note: 'Speed in px/s, pause in seconds at the end of a segment',
           fields: [
-            { key: 'speed', label: 'скорость', min: -600, max: 600, step: 10 },
-            { key: 'wait', label: 'пауза', min: 0, max: 20, step: 0.25 },
+            { key: 'speed', label: 'speed', min: -600, max: 600, step: 10 },
+            { key: 'wait', label: 'pause', min: 0, max: 20, step: 0.25 },
           ],
         },
-        { key: 'show', label: 'Показывать путь', type: 'bool' },
-        { key: 'color', label: 'Цвет', type: 'color' },
+        { key: 'show', label: 'Show the path', type: 'bool' },
+        { key: 'color', label: 'Color', type: 'color' },
       ]
     },
   },

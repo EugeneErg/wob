@@ -10,7 +10,7 @@ w.step(1/60)
 for(let i=0;i<300;i++) w.step(1/60)
 // физически слились?
 const fd=w.physics.fluid
-const ga=w.physics.points.find(p=>p.owner==='a')._i, gb=w.physics.points.find(p=>p.owner==='b')._i
+const _ga=w.physics.points.find(p=>p.owner==='a')._i, _gb=w.physics.points.find(p=>p.owner==='b')._i
 const s=w.physics.store
 let cross=0
 for(let a=0;a<fd.count;a++){

@@ -58,8 +58,7 @@ const screens = [
   ['AwardsView', {}],
   ['StoryPicker', { mode: 'play' }],
   ['StoryPicker', { mode: 'edit' }],
-  ['ChapterList', { mode: 'play', storyId: story.id }],
-  ['ChapterList', { mode: 'edit', storyId: story.id }],
+  ['StoryCanvas', { storyId: story.id }],
   ['ChapterMap', { mode: 'play', chapterId: chapter.id }],
   ['ChapterMap', { mode: 'edit', chapterId: chapter.id }],
   ['RunsView', { kind: 'level', targetId: level.id }],
@@ -115,8 +114,11 @@ const draw = async (path, props) => {
   // Signing in is a menu item like the others, in the same shape as the rest.
   // It briefly lived on the settings screen, which was the wrong place: it is
   // something people come here to do, unlike a frame cap.
-  check('signing in is offered on the menu itself', html.includes('Sign in'))
-  check('the sign-in control looks like the other cards', html.includes('class="card"'))
+  // Не по слову «Sign in»: надпись на кнопке рисует Google уже в браузере, а
+  // проверка на текст однажды прошла на комментарии в шаблоне — Vue выводит их
+  // в разметку. Ищем узел, в который кнопка встанет.
+  check('signing in is offered on the menu itself', html.includes('class="gbtn"'))
+  check('the sign-in control looks like the other cards', html.includes('card signin'))
 
   // Only the frame cap moved. It used to unfold under the menu, putting a
   // device preference in front of everyone every time they opened the game.
@@ -162,12 +164,12 @@ const draw = async (path, props) => {
     html.includes('sr primary') && html.includes('Play'))
 }
 {
-  const html = await draw('/src/views/ChapterList.vue', { mode: 'play', storyId: story.id })
+  const html = await draw('/src/views/ChapterMap.vue', { mode: 'play', chapterId: chapter.id })
   check('a chapter offers the choice too',
     html.includes('Play through') && html.includes('Speedrun'))
 }
 {
-  const html = await draw('/src/views/ChapterList.vue', { mode: 'play', storyId: story.id, speedrun: true })
+  const html = await draw('/src/views/ChapterMap.vue', { mode: 'play', chapterId: chapter.id, speedrun: true })
   check('but inside a running speedrun the chapter is not asked again',
     !html.includes('>Speedrun<'))
 }

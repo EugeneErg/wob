@@ -20,14 +20,23 @@
           The unearned ones are shown too, and not greyed into invisibility.
           A list of what you have is a trophy cabinet; a list of what exists is
           a reason to play.
+
+          Но одной прозрачностью это не читалось: список выглядел так, будто
+          всё уже получено. Теперь у каждой строки сказано словом, есть она или
+          нет, а сверху — сколько из скольких.
         -->
+        <li v-if="achievements.length" class="tally">
+          {{ earnedCount }} of {{ achievements.length }} earned
+        </li>
+
         <li v-for="a in achievements" :key="a.code" class="award" :class="{ got: a.earned }">
+          <span class="mark">{{ a.earned ? '★' : '☆' }}</span>
           <div class="what">
             <span class="title">{{ a.title }}</span>
             <span class="desc">{{ a.description }}</span>
           </div>
-          <span class="pts">{{ a.points }}</span>
           <span v-if="a.times > 1" class="times">×{{ a.times }}</span>
+          <span class="pts">{{ a.earned ? a.points : '—' }}</span>
         </li>
       </ul>
 
@@ -44,7 +53,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { myAwards, ranking } from '../core/awards.js'
 
 defineEmits(['back'])
@@ -52,6 +61,10 @@ defineEmits(['back'])
 const loading = ref(true)
 const failed = ref(null)
 const tab = ref('mine')
+
+// Сколько уже есть. Без этого список одинаковых строк читается как «всё
+// получено», и понять, что половина ещё впереди, можно только приглядевшись.
+const earnedCount = computed(() => achievements.value.filter((a) => a.earned).length)
 const points = ref(0)
 const achievements = ref([])
 const board = ref([])
@@ -108,8 +121,15 @@ async function openRanking() {
   display: flex; align-items: center; gap: 12px;
   padding: 11px 14px; border-bottom: 1px solid var(--line);
 }
-.award { opacity: 0.45; }
+.award { opacity: 0.5; }
 .award.got { opacity: 1; }
+.mark { width: 16px; text-align: center; color: var(--muted); font-size: 14px; }
+.award.got .mark { color: #ffd9a0; }
+.tally {
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+}
+.award:not(.got) .pts { color: var(--muted); }
 .what { flex: 1; display: flex; flex-direction: column; }
 .title { font-size: 14px; color: var(--text); }
 .desc { font-size: 12px; color: var(--muted); margin-top: 2px; }

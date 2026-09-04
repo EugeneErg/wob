@@ -30,7 +30,7 @@ const drops = (w, id = 'w') => w.physics.points.filter((p) => p.owner === id && 
   w.step(1 / 60)
   const spread = () => {
     const d = drops(w)
-    const cx = d.reduce((s, p) => s + p.x, 0) / d.length
+    const _cx = d.reduce((s, p) => s + p.x, 0) / d.length
     const cy = d.reduce((s, p) => s + p.y, 0) / d.length
     const r = d.map((p) => Math.hypot(p.x - 600, p.y - 400))
     return { cy, rmin: Math.min(...r), rmax: Math.max(...r) }

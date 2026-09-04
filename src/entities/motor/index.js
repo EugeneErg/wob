@@ -17,7 +17,7 @@ const TAU = Math.PI * 2
 
 export default defineEntity({
   type: 'motor',
-  title: 'Двигатель',
+  title: 'Motor',
   z: LAYERS.midground + 1,
   icon: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="currentColor"/><path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M12 21a9 9 0 0 1-9-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>',
 
@@ -142,11 +142,11 @@ export default defineEntity({
     deleteHandles: () => false,
 
     props: () => [
-      { key: 'hard', label: 'Жёсткий (ничем не остановить)', type: 'bool' },
-      { key: 'speed', label: 'Скорость, об/с (0 — свободный шарнир)', type: 'range', min: -2, max: 2, step: 0.05 },
-      { key: 'torque', label: 'Предел момента', type: 'range', min: 5, max: 300, step: 5 },
-      { key: 'r', label: 'Радиус', type: 'range', min: 10, max: 90, step: 1 },
-      { key: 'color', label: 'Цвет', type: 'color' },
+      { key: 'hard', label: 'Rigid (nothing can stop it)', type: 'bool' },
+      { key: 'speed', label: 'Speed, rev/s (0 = free hinge)', type: 'range', min: -2, max: 2, step: 0.05 },
+      { key: 'torque', label: 'Torque limit', type: 'range', min: 5, max: 300, step: 5 },
+      { key: 'r', label: 'Radius', type: 'range', min: 10, max: 90, step: 1 },
+      { key: 'color', label: 'Color', type: 'color' },
     ],
   },
 })

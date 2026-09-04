@@ -31,7 +31,7 @@ export const RULES_VERSION = 1
 // FNV-1a: короткий, быстрый, без зависимостей. Криптостойкость тут не нужна —
 // защищаемся от случайной правки, а не от злого умысла (подделку записи ловит
 // не хеш, а перепроверка прогона на сервере).
-function fnv(str) {
+export function fnv(str) {
   let h = 2166136261
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) }
   return (h >>> 0).toString(16).padStart(8, '0')
@@ -39,7 +39,7 @@ function fnv(str) {
 
 // Устойчивая сериализация: ключи по алфавиту. Без этого хеш прыгал бы от
 // порядка полей в объекте, а он зависит от того, как объект собирали.
-function stable(v) {
+export function stable(v) {
   if (v === null || typeof v !== 'object') return JSON.stringify(v)
   if (Array.isArray(v)) return `[${v.map(stable).join(',')}]`
   return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`
@@ -69,8 +69,11 @@ export function chapterHash(ch) {
   const levels = ch.nodes
     .map((n) => `${n.levelId}:${levelHash(level(n.levelId))}:${level(n.levelId)?.name ?? ''}`)
     .sort()
-  const edges = ch.edges.map((e) => `${e.from}>${e.to}`).sort()
-  return fnv(stable({ id: ch.id, levels, edges }))
+  // Связи идут от точки к точке и могут уходить в другую главу. Раньше это были
+  // рёбра между уровнями плюс отдельный выход в главу — одна и та же мысль в
+  // двух масштабах, то есть два ответа на вопрос «что дальше».
+  const links = ch.nodes.flatMap((n) => (n.next || []).map((c) => `${n.id}>${c}`)).sort()
+  return fnv(stable({ id: ch.id, levels, links }))
 }
 
 // Хеш истории — её заголовок, её главы и их заголовки.
@@ -81,7 +84,11 @@ export function chapterHash(ch) {
 export function storyHash(s) {
   if (!s) return null
   const chapters = s.chapters.map((c) => `${c}:${chapterHash(chapter(c))}:${chapter(c)?.title ?? ''}`)
-  return fnv(stable({ id: s.id, title: s.title, chapters }))
+
+  // Какая глава открывает историю — содержание, а не оформление: поменяй её, и
+  // игрок встретит другую историю. Заставки и обложки по обратной причине сюда
+  // не входят, иначе замена ролика обнуляла бы рекорды.
+  return fnv(stable({ id: s.id, title: s.title, start: s.start || s.chapters[0] || '', chapters }))
 }
 
 // Сид уровня выводится из самого уровня, а не из попытки.
@@ -131,13 +138,13 @@ export function checkRecord(rec) {
   if (rec.releaseId && !release(rec.releaseId)) {
     // Выпуска нет: он удалён или это чужая машина. Сверить запись не с чем,
     // и молча признать её годной нельзя — она может быть с чего угодно.
-    return { ok: false, why: 'release', text: 'Выпуск, на котором снята запись, недоступен' }
+    return { ok: false, why: 'release', text: 'The release this recording was made on is no longer available' }
   }
   const now = rec.releaseId
     ? stampOfRelease(rec)
     : stampOf({ kind: rec.kind, targetId: rec.targetId })
-  if (rec.rules !== now.rules) return { ok: false, why: 'rules', text: 'Запись снята на другой версии физики' }
-  if (rec.hash && now.hash && rec.hash !== now.hash) return { ok: false, why: 'content', text: 'С тех пор уровень изменили' }
+  if (rec.rules !== now.rules) return { ok: false, why: 'rules', text: 'This recording was made on a different physics version' }
+  if (rec.hash && now.hash && rec.hash !== now.hash) return { ok: false, why: 'content', text: 'The level has changed since then' }
   return { ok: true }
 }
 
@@ -160,8 +167,11 @@ function stampOfRelease(rec) {
 // в библиотеке лежит черновик, и он к выпуску отношения не имеет.
 const chapterHashOf = (rel, ch) => {
   const levels = ch.nodes.map((n) => `${n.levelId}:${levelHash(levelFrom(rel, n.levelId))}`).sort()
-  const edges = ch.edges.map((e) => `${e.from}>${e.to}`).sort()
-  return fnv(stable({ id: ch.id, levels, edges }))
+  // Связи идут от точки к точке и могут уходить в другую главу. Раньше это были
+  // рёбра между уровнями плюс отдельный выход в главу — одна и та же мысль в
+  // двух масштабах, то есть два ответа на вопрос «что дальше».
+  const links = ch.nodes.flatMap((n) => (n.next || []).map((c) => `${n.id}>${c}`)).sort()
+  return fnv(stable({ id: ch.id, levels, links }))
 }
 const storyHashOf = (rel) =>
   fnv(stable({

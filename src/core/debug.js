@@ -55,7 +55,7 @@ export function download(blob, name) {
 
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
 
-export function saveScreenshot(svg, tag = 'снимок') {
+export function saveScreenshot(svg, tag = 'screenshot') {
   const blob = snapshotSVG(svg)
   if (blob) download(blob, `${tag}-${stamp()}.svg`)
   return !!blob
@@ -95,7 +95,7 @@ export function dumpState(extra = {}) {
   }
 }
 
-export function saveState(extra = {}, tag = 'состояние') {
+export function saveState(extra = {}, tag = 'state') {
   const json = JSON.stringify(dumpState(extra), null, 2)
   download(new Blob([json], { type: 'application/json' }), `${tag}-${stamp()}.json`)
 }

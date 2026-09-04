@@ -7,7 +7,13 @@
 const KEY = 'goo.library.v1'
 const PROGRESS = 'goo.progress.v1'
 
-const uid = (p) => `${p}-${Math.random().toString(36).slice(2, 9)}`
+// Имён здесь не выдают.
+//
+// Раньше их чеканил браузер: редактор должен был назвать историю до того, как о
+// ней узнает сервер. Цена — имя, живущее в двух местах сразу: сервер выдавал
+// своё, клиент оставался со своим, и каждое следующее сохранение уходило по
+// несуществующему id. Теперь всякое имя приходит из ответа сервера, а функции
+// ниже принимают его снаружи и только раскладывают по местам.
 
 const empty = () => ({ stories: [], chapters: [], levels: [], assets: [] })
 
@@ -128,38 +134,95 @@ export const chaptersOf = (storyId) =>
   (story(storyId)?.chapters || []).map(chapter).filter(Boolean)
 
 // ---- создание и правка -----------------------------------------------------
-export function createStory(title = 'Новая история') {
+export function createStory({ id, chapterId }, title = 'New story', extra = {}) {
   const lib = library()
-  const s = { id: uid('story'), title, cover: 'linear-gradient(140deg,#2b4a5c,#16242b)', chapters: [], hot: [] }
+  const s = { id, title, cover: 'linear-gradient(140deg,#2b4a5c,#16242b)', intro: '', chapters: [], hot: [], ...extra }
   lib.stories.push(s)
-  const c = createChapter(s.id, 'Глава 1')
+  const c = createChapter(s.id, chapterId, 'Chapter 1')
   save()
   return { story: s, chapter: c }
 }
 
-export function createChapter(storyId, title = 'Новая глава') {
+// Ширина и высота области главы на доске. Одинаковые у всех новых: доска
+// читается по расположению, а не по размеру, и разнобой на пустом месте только
+// мешал бы искать глазами.
+export const CHAPTER_BOX = { w: 420, h: 300, gap: 80 }
+
+// Новая глава встаёт правее самой правой — доска у истории без краёв, и место
+// справа всегда есть. Автор потом двигает её куда хочет.
+function nextSpot(storyId) {
+  const boxes = chaptersOf(storyId).map((c) => c.canvas).filter(Boolean)
+  if (!boxes.length) return { x: 0, y: 0, ...{ w: CHAPTER_BOX.w, h: CHAPTER_BOX.h } }
+  const right = Math.max(...boxes.map((b) => b.x + b.w))
+  return { x: right + CHAPTER_BOX.gap, y: Math.min(...boxes.map((b) => b.y)), w: CHAPTER_BOX.w, h: CHAPTER_BOX.h }
+}
+
+export function createChapter(storyId, id, title = 'New chapter', extra = {}) {
   const lib = library()
-  const c = { id: uid('ch'), storyId, title, image: 'linear-gradient(160deg,#1d3040,#0f1a20)', nodes: [], edges: [], hot: [] }
+  const c = { id, storyId, title, image: 'linear-gradient(160deg,#1d3040,#0f1a20)', map: '', nodes: [], hot: [], canvas: nextSpot(storyId), ...extra }
   lib.chapters.push(c)
   story(storyId)?.chapters.push(c.id)
   save()
   return c
 }
 
-export function createLevel(chapterId, name = 'Новый уровень') {
+// Уровень без точки на карте.
+//
+// Понадобился, когда уровни стали появляться в панели раньше, чем на доске:
+// автор делает уровень, потом решает, в какую главу его положить. Раньше такого
+// состояния не было — createLevel() создавал уровень и точку одним движением, —
+// и уровень без точки был бы попросту невидим, потому что список собирался
+// обходом карт.
+//
+// Поэтому уровень теперь помнит свою историю. На сервере это поле есть с самого
+// начала (levels.story_id), так что расходимся мы только во фронте.
+export function createLevelIn(storyId, id, name = null, extra = {}) {
   const lib = library()
+
+  // Рабочее имя, а не то, что увидит игрок: игрок видит имя ТОЧКИ. Уровень —
+  // это содержимое, и спрашивать у автора название до того, как он что-то
+  // построил, значит спрашивать раньше, чем есть о чём.
+  const n = lib.levels.filter((x) => x.storyId === storyId).length + 1
+
   const l = {
-    id: uid('lvl'), name,
+    id, storyId, name: name || `Level ${n}`,
     width: 1600, height: 900,
     gravity: { x: 0, y: 1800 },
     goal: 3, entities: [], hot: [],
+    image: extra.image || '',
+  }
+  lib.levels.push(l)
+  save()
+  return l
+}
+
+export function createLevel(chapterId, { id, nodeId }, name = 'New level', extra = {}) {
+  const lib = library()
+  const l = {
+    id, storyId: chapter(chapterId)?.storyId, name,
+    width: 1600, height: 900,
+    gravity: { x: 0, y: 1800 },
+    goal: 3, entities: [], hot: [],
+    image: extra.image || '',
   }
   lib.levels.push(l)
   const ch = chapter(chapterId)
   if (ch) {
+    // Точка получает собственное имя: один уровень может стоять в нескольких.
     const n = ch.nodes.length
-    ch.nodes.push({ levelId: l.id, x: 12 + (n % 6) * 14, y: 25 + Math.floor(n / 6) * 22 })
-    if (n > 0) ch.edges.push({ from: ch.nodes[n - 1].levelId, to: l.id })
+    // Ролик принадлежит точке, а не уровню: один и тот же уровень, встреченный
+    // второй раз, может закончиться по-своему.
+    const node = {
+      id: nodeId, levelId: l.id,
+      x: 12 + (n % 6) * 14, y: 25 + Math.floor(n / 6) * 22,
+      next: [], name: extra.name || '', image: extra.image || '', outro: extra.outro || '',
+    }
+    if (n > 0) ch.nodes[n - 1].next.push(node.id)
+    ch.nodes.push(node)
+
+    // Первая появившаяся точка открывает историю.
+    const st = story(ch.storyId)
+    if (st && !st.start) { st.start = node.id; }
   }
   save()
   return l
@@ -172,6 +235,15 @@ export function removeStory(id) {
   save()
 }
 
+// Сдвиг области главы по доске. Точки внутри не трогаем: их x и y — проценты
+// самой главы, поэтому область едет вместе со всем содержимым бесплатно.
+export function placeChapter(id, rect) {
+  const c = chapter(id)
+  if (!c) return
+  c.canvas = { ...(c.canvas || { w: CHAPTER_BOX.w, h: CHAPTER_BOX.h }), ...rect }
+  save()
+}
+
 export function removeChapter(id, keepStory = false) {
   const lib = library()
   const ch = chapter(id)
@@ -179,11 +251,18 @@ export function removeChapter(id, keepStory = false) {
   const used = new Set(lib.chapters.filter((c) => c.id !== id).flatMap((c) => c.nodes.map((n) => n.levelId)))
   lib.levels = lib.levels.filter((l) => used.has(l.id) || !ch.nodes.some((n) => n.levelId === l.id))
   lib.chapters = lib.chapters.filter((c) => c.id !== id)
-  // Узлы, которые выводили в удалённую главу, перестают быть выходами. Оставить
-  // привязку висеть нельзя: узел выглядел бы выходом, вёл бы в никуда, и глава
-  // засчитывалась бы пройденной по несуществующей дороге.
+  // Связи, которые вели в точки удалённой главы, снимаются. Оставить их висеть
+  // нельзя: на карте они выглядели бы дорогой вперёд, вели бы в никуда, и всё,
+  // что за ними, осталось бы запертым навсегда.
+  const gone = new Set(ch.nodes.map((n) => n.id))
   for (const c of lib.chapters) {
-    for (const n of c.nodes) if (n.next === id) delete n.next
+    for (const n of c.nodes) n.next = (n.next || []).filter((x) => !gone.has(x))
+  }
+
+  // История не должна начинаться в исчезнувшем месте.
+  const st = story(ch.storyId)
+  if (st && gone.has(st.start)) {
+    st.start = lib.chapters.filter((c) => st.chapters.includes(c.id)).flatMap((c) => c.nodes)[0]?.id || null
   }
   if (!keepStory) {
     const s = story(ch.storyId)
@@ -196,25 +275,137 @@ export function removeLevel(chapterId, levelId) {
   const lib = library()
   const ch = chapter(chapterId)
   if (ch) {
+    const gone = new Set(ch.nodes.filter((n) => n.levelId === levelId).map((n) => n.id))
     ch.nodes = ch.nodes.filter((n) => n.levelId !== levelId)
-    ch.edges = ch.edges.filter((e) => e.from !== levelId && e.to !== levelId)
+    // Связь на исчезнувшую точку выглядела бы дорогой вперёд и заперла бы всё,
+    // что за ней, навсегда.
+    for (const c of lib.chapters) for (const n of c.nodes) n.next = (n.next || []).filter((x) => !gone.has(x))
   }
   const stillUsed = lib.chapters.some((c) => c.nodes.some((n) => n.levelId === levelId))
   if (!stillUsed) lib.levels = lib.levels.filter((l) => l.id !== levelId)
   save()
 }
 
-export function copyLevel(chapterId, levelId) {
+// Все уровни истории — то, из чего редактор выбирает, ставя точку.
+//
+// Уровень принадлежит истории, а не главе: точка на карте лишь показывает его.
+// Поэтому список собирается по всем главам истории, а не по одной.
+export function levelsOf(storyId) {
+  const lib = library()
+  const seen = new Map()
+
+  // Уровни, которые сами знают свою историю, — включая ещё не положенные ни на
+  // одну карту.
+  for (const l of lib.levels) if (l.storyId === storyId) seen.set(l.id, l)
+
+  // Старые уровни поля не имеют: их видно только через точки, которые их
+  // показывают. Обход карт остаётся ради них и уйдёт, когда уйдут они.
+  for (const c of chaptersOf(storyId)) {
+    for (const n of c.nodes) {
+      const l = level(n.levelId)
+      if (l && !seen.has(l.id)) seen.set(l.id, l)
+    }
+  }
+  return [...seen.values()]
+}
+
+// Что игрок видит под точкой. Имя уровня — запасной вариант для старых данных
+// и рабочее имя в панели автора.
+export const nodeName = (node) => node?.name || level(node?.levelId)?.name || ''
+
+// Уровни истории, которых нет ни на одной карте. В панели они первыми: автор
+// только что их сделал и ещё не решил, куда положить.
+export const unplacedLevels = (storyId) =>
+  levelsOf(storyId).filter((l) => placesOf(storyId, l.id).length === 0)
+
+// Сколько точек показывают этот уровень и в каких главах.
+export function placesOf(storyId, levelId) {
+  return chaptersOf(storyId)
+    .flatMap((c) => c.nodes.filter((n) => n.levelId === levelId).map((n) => ({ chapter: c, node: n })))
+}
+
+/**
+ * Поставить на карту ещё одну точку для уже существующего уровня.
+ *
+ * Ровно то, ради чего у точек появились собственные имена: один уровень,
+ * встреченный в истории второй раз, ведёт дальше по-своему и заканчивается
+ * своим роликом. Новый уровень при этом не создаётся — показывается тот же.
+ */
+export function pinLevel(chapterId, levelId, nodeId, at = {}) {
+  const ch = chapter(chapterId)
+  if (!ch || !level(levelId)) return null
+
+  const n = ch.nodes.length
+
+  // Имя, картинка и ролик живут на точке, а не на уровне. Один и тот же уровень,
+  // встреченный в истории второй раз, — это другое место: у него своё название
+  // на карте, своя картинка и свой ролик в конце. Держать их на уровне значило
+  // бы, что второе появление обязано звать себя так же, как первое.
+  const node = {
+    id: nodeId,
+    levelId,
+    x: at.x ?? 12 + (n % 6) * 14,
+    y: at.y ?? 25 + Math.floor(n / 6) * 22,
+    next: [],
+    name: at.name || '',
+    image: at.image || '',
+    outro: at.outro || '',
+  }
+  ch.nodes.push(node)
+  save()
+
+  return node
+}
+
+/**
+ * Убрать точку, не трогая уровень.
+ *
+ * Отличается от removeLevel: та убирает уровень из истории целиком. Пока
+ * уровень стоял ровно в одном месте, разницы не было; теперь есть, и путать их
+ * — значит терять уровень, снимая с карты одно из его появлений.
+ */
+export function unpinNode(chapterId, nodeId) {
+  const lib = library()
+  const ch = chapter(chapterId)
+  if (!ch) return
+
+  const shown = ch.nodes.find((n) => n.id === nodeId)?.levelId
+  ch.nodes = ch.nodes.filter((n) => n.id !== nodeId)
+  for (const c of lib.chapters) for (const n of c.nodes) n.next = (n.next || []).filter((x) => x !== nodeId)
+
+  const st = story(ch.storyId)
+  if (st && st.start === nodeId) {
+    st.start = lib.chapters.filter((c) => st.chapters.includes(c.id)).flatMap((c) => c.nodes)[0]?.id || null
+  }
+
+  // Уровень, который больше нигде не показан, из истории уходит: до него не
+  // добраться, а в выгрузке он остался бы грузом, который никто не откроет.
+  const stillUsed = lib.chapters.some((c) => c.nodes.some((n) => n.levelId === shown))
+  if (shown && !stillUsed) lib.levels = lib.levels.filter((l) => l.id !== shown)
+
+  save()
+}
+
+/** Показать в этой точке другой уровень. */
+export function setNodeLevel(chapterId, nodeId, levelId) {
+  const ch = chapter(chapterId)
+  const node = ch?.nodes.find((n) => n.id === nodeId)
+  if (!node || !level(levelId)) return
+  node.levelId = levelId
+  save()
+}
+
+export function copyLevel(chapterId, levelId, { id, nodeId }) {
   const src = level(levelId)
   if (!src) return null
   const lib = library()
   const copy = structuredClone(src)
-  copy.id = uid('lvl')
-  copy.name = src.name + ' — копия'
+  copy.id = id
+  copy.name = src.name + ' — copy'
   lib.levels.push(copy)
   const ch = chapter(chapterId)
   const node = ch?.nodes.find((n) => n.levelId === levelId)
-  ch?.nodes.push({ levelId: copy.id, x: Math.min(92, (node?.x ?? 20) + 8), y: Math.min(90, (node?.y ?? 20) + 8) })
+  ch?.nodes.push({ id: nodeId, levelId: copy.id, x: Math.min(92, (node?.x ?? 20) + 8), y: Math.min(90, (node?.y ?? 20) + 8), next: [], outro: '' })
   save()
   return copy
 }
@@ -228,13 +419,24 @@ export function saveLevel(l) {
 }
 
 // ---- ассеты ----------------------------------------------------------------
-export function createAsset({ type, title, data }) {
+// Ассет — группа сущностей, а не одна.
+//
+// Переиспользовать обычно хочется не отдельную сущность, а сочетание: мотор
+// вместе с рычагом, который он крутит. Сохраняя их по одной, теряешь ровно то,
+// ради чего сохранял, — как они собраны. Одиночная сущность при этом просто
+// группа из одной.
+export function createAsset({ id, title, entities }) {
   const lib = library()
-  const a = { id: uid('as'), type, title: title || type, data: structuredClone(data) }
+  const list = structuredClone(entities)
+  const a = { id, title: title || list[0]?.type || 'asset', entities: list }
   lib.assets.push(a)
   save()
   return a
 }
+
+// Какие типы внутри — по ним палитра группирует. Группа из нескольких типов
+// принадлежит каждому из них: тот, кто искал мотор, найдёт мотор с рычагом.
+export const assetTypes = (a) => [...new Set((a.entities || []).map((e) => e.type))]
 
 export function removeAsset(id) {
   const lib = library()
@@ -293,13 +495,21 @@ export function markDone(levelId) {
 
 // Уровень открыт, если он входной (в него не ведёт ни одна тропа)
 // или пройден хотя бы один из ведущих к нему.
-export function levelOpen(ch, levelId) {
-  const incoming = ch.edges.filter((e) => e.to === levelId)
+// Точка открыта, если в неё не ведёт ничего (значит она вход) или пройдена
+// хотя бы одна ведущая к ней. Считается по точкам, а не по уровням: уровень
+// может стоять в нескольких местах, и пройденный в одном остальные не открывает.
+export function nodeOpen(ch, nodeId) {
+  const all = library().chapters
+  const incoming = all.flatMap((c) => c.nodes.filter((n) => (n.next || []).includes(nodeId)))
   if (!incoming.length) return true
-  return incoming.some((e) => isDone(e.from))
+  return incoming.some((n) => isDone(n.levelId))
 }
 // Тропа видна, когда пройдено её начало
-export const edgeVisible = (e) => isDone(e.from)
+// Связь видна, когда пройдена точка, из которой она идёт.
+export const linkVisible = (ch, fromNodeId) => {
+  const n = ch.nodes.find((m) => m.id === fromNodeId)
+  return !!n && isDone(n.levelId)
+}
 
 export const chapterDone = (ch) => ch.nodes.length > 0 && ch.nodes.every((n) => isDone(n.levelId))
 
@@ -335,83 +545,53 @@ export const exportStory = (id) =>
 export const exportChapter = (id) =>
   bundleOf('chapter', { stories: [], chapters: [id] })
 
-// Импорт всегда добавляет, а не затирает: конфликтующие id переименовываются.
+/**
+ * Влить содержимое с сервера в локальную библиотеку.
+ *
+ * Раньше здесь переименовывались конфликтующие id — потому что пакет мог
+ * приехать из файла и столкнуться с уже имеющимся. Файлового ввоза больше нет:
+ * единственные, кто сюда ходит, — downloadStory и downloadLibrary, то есть
+ * сервер отдаёт то, что сам же и назвал. Переименовывать своё же значило
+ * заводить вторую копию каждой истории при каждом обновлении.
+ *
+ * Поэтому теперь слияние по id, и сервер главнее: у него источник правды, а
+ * здесь кэш. Имён клиент не придумывает вовсе.
+ */
 export function importBundle(bundle) {
-  if (!bundle || bundle.format !== 'goo-bundle') throw new Error('Это не файл историй Goo')
+  if (!bundle || bundle.format !== 'goo-bundle') throw new Error('This is not a Goo stories file')
   const lib = library()
-  const map = new Map()
-  const fresh = (id, prefix) => {
-    if (!map.has(id)) map.set(id, uid(prefix))
-    return map.get(id)
-  }
-  const taken = (arr, id) => arr.some((x) => x.id === id)
 
-  for (const a of bundle.assets || []) {
-    const same = lib.assets.find((x) => x.type === a.type && x.title === a.title && JSON.stringify(x.data) === JSON.stringify(a.data))
-    if (same) { map.set(a.id, same.id); continue }
-    const id = taken(lib.assets, a.id) ? fresh(a.id, 'as') : a.id
-    map.set(a.id, id)
-    lib.assets.push({ ...a, id })
+  const upsert = (list, item) => {
+    const i = list.findIndex((x) => x.id === item.id)
+    if (i >= 0) list[i] = item
+    else list.push(item)
   }
-  for (const l of bundle.levels || []) {
-    const id = taken(lib.levels, l.id) ? fresh(l.id, 'lvl') : l.id
-    map.set(l.id, id)
-    lib.levels.push({ ...structuredClone(l), id, hot: (l.hot || []).map((h) => map.get(h) || h) })
-  }
-  // Имена всем главам пакета раздаются ДО того, как собираются сами главы.
-  // Иначе привязка на главу, которая лежит в пакете ниже, не найдёт её нового
-  // имени: в тот момент его ещё не существует, и ссылка уехала бы на старое.
-  const inBundle = new Set((bundle.chapters || []).map((c) => c.id))
-  for (const c of bundle.chapters || []) {
-    map.set(c.id, taken(lib.chapters, c.id) ? fresh(c.id, 'ch') : c.id)
-  }
-  for (const c of bundle.chapters || []) {
-    const id = map.get(c.id)
-    lib.chapters.push({
-      ...structuredClone(c), id,
-      // next — ссылка на главу, и при ввозе она обязана указывать на главу
-      // ИЗ ЭТОГО ЖЕ пакета. Если главы-цели в пакете нет, ссылка снимается:
-      // оставить её — значит вывести привезённую главу в чужую историю, где
-      // случайно совпал id. Автор привяжет заново, и это честнее.
-      // next снимается через раскладку, а не «добавляется при условии»:
-      // ...n уже принесла бы старую ссылку с собой, и условная вставка могла бы
-      // её только перезаписать, но не убрать.
-      nodes: c.nodes.map(({ next, ...n }) => ({
-        ...n,
-        levelId: map.get(n.levelId) || n.levelId,
-        ...(next && inBundle.has(next) ? { next: map.get(next) } : {}),
-      })),
-      edges: c.edges.map((e) => ({ from: map.get(e.from) || e.from, to: map.get(e.to) || e.to })),
-      hot: (c.hot || []).map((h) => map.get(h) || h),
-    })
-  }
+
+  for (const a of bundle.assets || []) upsert(lib.assets, structuredClone(a))
+  for (const l of bundle.levels || []) upsert(lib.levels, structuredClone(l))
+  for (const c of bundle.chapters || []) upsert(lib.chapters, structuredClone(c))
+
   const added = []
-  for (const s of bundle.stories || []) {
-    const id = taken(lib.stories, s.id) ? fresh(s.id, 'story') : s.id
-    const copy = {
-      ...structuredClone(s), id,
-      chapters: s.chapters.map((c) => map.get(c) || c),
-      hot: (s.hot || []).map((h) => map.get(h) || h),
-    }
-    lib.stories.push(copy)
+  for (const st of bundle.stories || []) {
+    const copy = structuredClone(st)
+    upsert(lib.stories, copy)
     added.push(copy)
   }
-  // глава без истории — заводим ей приют
-  if (!bundle.stories?.length && bundle.chapters?.length) {
-    const s = { id: uid('story'), title: 'Импортированные главы', cover: 'linear-gradient(140deg,#4a3a5c,#16242b)', chapters: bundle.chapters.map((c) => map.get(c.id) || c.id), hot: [] }
-    lib.stories.push(s)
-    added.push(s)
-  }
+
+  // Глава знает свою историю по тому, кто её перечисляет.
   for (const c of lib.chapters) {
-    const owner = lib.stories.find((s) => s.chapters.includes(c.id))
+    const owner = lib.stories.find((st) => st.chapters.includes(c.id))
     if (owner) c.storyId = owner.id
   }
-  // Привезли главу, а ту, в которую она выводила, — нет. Ссылка в никуда
-  // хуже её отсутствия: узел выглядел бы выходом. Снимаем, автор привяжет заново.
-  const known = new Set(lib.chapters.map((c) => c.id))
+
+  // Ссылка на точку, которой в библиотеке нет, хуже её отсутствия: на карте это
+  // выглядит дорогой вперёд, а за ней ничего.
+  const known = new Set(lib.chapters.flatMap((c) => c.nodes.map((n) => n.id)))
   for (const c of lib.chapters) {
-    for (const n of c.nodes) if (n.next && !known.has(n.next)) delete n.next
+    for (const n of c.nodes) n.next = (n.next || []).filter((x) => known.has(x))
   }
+
   save()
+
   return added
 }

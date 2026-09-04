@@ -23,13 +23,9 @@ const st = lib.stories()[0]
 const chapters = lib.chaptersOf(st.id)
 console.log(`история «${st.title}»: глав ${chapters.length}`)
 
-// Связываем главы в цепочку: выход каждой ведёт в следующую
-for (let i = 0; i < chapters.length - 1; i++) {
-  const c = chapters[i]
-  const last = c.nodes.find((n) => !c.edges.some((e) => e.from === n.levelId))
-  last.next = chapters[i + 1].id
-}
-lib.save()
+// Встроенная библиотека уже сшита: последняя точка каждой главы ведёт в первую
+// точку следующей. Отдельной привязки глав больше нет — связь идёт от точки к
+// точке и просто пересекает границу главы.
 console.log('начальные главы:', entryChapters(st, chapters).map((id) => lib.chapter(id).title).join(', '))
 console.log('концы истории:', finalChapters(st, chapters).map((id) => lib.chapter(id).title).join(', '))
 
@@ -46,10 +42,14 @@ while (guard++ < 40) {
   const ch = chapters.find((c) => open.includes(c.id) && !categoryOf(c, map.get(c.id) || new Set()))
   if (!ch) break
   const done = map.get(ch.id) || new Set()
-  const next = openNodes(ch, done).find((id) => !done.has(id))
-  if (!next) break
-  run.push(seg(300), { levelId: next, chapterId: ch.id, hash: 'h' })
-  console.log(`  ${ch.title} / ${lib.level(next).name} — всего ${formatTime(run.ticks)}`)
+  // Связи пересекают главы, поэтому «что открыто» — вопрос про всю историю:
+  // передаём все главы и всё пройденное, а не только эту главу.
+  const doneAll = new Set([...map.values()].flatMap((set) => [...set]))
+  const nodeId = openNodes(ch, done, { chapters, done: doneAll }).find((id) => !done.has(id))
+  if (!nodeId) break
+  const node = ch.nodes.find((n) => n.id === nodeId)
+  run.push(seg(300), { levelId: node.levelId, nodeId, chapterId: ch.id, hash: 'h' })
+  console.log(`  ${ch.title} / ${lib.level(node.levelId).name} — всего ${formatTime(run.ticks)}`)
   if (storyCategoryOf(st, chapters, doneByChapter(run))) break
 }
 
@@ -89,20 +89,25 @@ check('её сегменты помнят главу', qRec.segments.every((g) =
 
 
 // --- линейная история не заканчивается после первой главы -------------------
-// Случай из жизни: во встроенной библиотеке привязок next нет вовсе, и правило
-// «конец истории — глава, из которой никуда не ведёт» объявляло концом каждую.
-// Игрок проходил первую главу и получал зачёт за всю историю.
+// Случай из жизни: во встроенной библиотеке связей между главами не было вовсе,
+// и правило «конец истории — глава, из которой никуда не ведёт» объявляло
+// концом каждую. Игрок проходил первую главу и получал зачёт за всю историю.
+//
+// Теперь связи расставлены явно: последняя точка каждой главы ведёт в первую
+// точку следующей. Ровно это и было смыслом порядка глав, только раньше он
+// подразумевался, а теперь записан и виден автору.
 seed(lib)
 const st2 = lib.stories()[0]
 const chs2 = lib.chaptersOf(st2.id)
-check('во встроенной библиотеке привязок нет',
-  !chs2.some((c) => c.nodes.some((n) => n.next)))
-check('концом считается только последняя глава по составу',
+check('главы сшиты связями, а не порядком списка',
+  chs2.slice(0, -1).every((c) => c.nodes.some((n) => (n.next || []).some(
+    (x) => !c.nodes.some((m) => m.id === x)))))
+check('конец один — глава, из которой связи не уходят',
   finalChapters(st2, chs2).length === 1 && finalChapters(st2, chs2)[0] === st2.chapters.at(-1),
   finalChapters(st2, chs2).join(','))
 
 const one = new ChainRun({ kind: KIND.STORY, targetId: st2.id })
-for (const n of chs2[0].nodes) one.push(seg(300), { levelId: n.levelId, chapterId: chs2[0].id })
+for (const n of chs2[0].nodes) one.push(seg(300), { levelId: n.levelId, nodeId: n.id, chapterId: chs2[0].id })
 const m1 = doneByChapter(one)
 check('первая глава пройдена на 100%', categoryOf(chs2[0], m1.get(chs2[0].id)) === '100')
 check('но история ещё не пройдена', storyCategoryOf(st2, chs2, m1) === null)

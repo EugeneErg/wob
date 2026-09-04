@@ -31,7 +31,7 @@
     <!-- The recorded cursor. In a replay there is nothing else to show the
          player's hand: the ball moves on its own, and without a marker there is
          no telling it is being dragged. -->
-    <g v-if="ghost" class="ghost" :transform="`translate(${ghost.x} ${ghost.y})`">
+    <g v-if="ghostDot" class="ghost" :transform="`translate(${ghostDot.x} ${ghostDot.y})`">
       <circle r="13" />
       <circle r="4" class="core" />
     </g>
@@ -46,7 +46,7 @@ import { Run, replayOf, PLAY, REPLAY } from '../core/run.js'
 import { Scrubber } from '../core/scrub.js'
 import { gapAt } from '../core/splits.js'
 import { settings } from '../core/settings.js'
-import { DOWN, UP } from '../core/input.js'
+import { UP } from '../core/input.js'
 import SvgScene from './SvgScene.js'
 
 const props = defineProps({
@@ -93,7 +93,10 @@ const preview = shallowRef(null)
 const ghostRun = shallowRef(null)
 const ghostShapes = shallowRef([])
 const sim = () => (props.mode === REPLAY ? scrub.value?.run : run.value)
-const ghost = shallowRef(null)
+// Не `ghost`: так зовётся пропс с самой записью, и локальная переменная его
+// затеняла — в шаблоне до пропса было не добраться. Работало, но читалось как
+// ошибка, а следующий, кто напишет в шаблоне `ghost`, получит не то, что ждал.
+const ghostDot = shallowRef(null)
 const w = computed(() => props.level.width || 1600)
 const h = computed(() => props.level.height || 900)
 
@@ -141,7 +144,7 @@ const fps = ref(0)
 
 function build() {
   off?.()
-  ghost.value = null
+  ghostDot.value = null
   scrub.value = null
   run.value = null
   if (props.mode === REPLAY && props.record) {
@@ -329,7 +332,7 @@ function trackGhost() {
   const upto = r._cursor ?? r.log._cursor
   if (upto < 4) return
   const kind = ev[upto - 3]
-  ghost.value = kind === UP ? null : { x: ev[upto - 2], y: ev[upto - 1] }
+  ghostDot.value = kind === UP ? null : { x: ev[upto - 2], y: ev[upto - 1] }
 }
 
 onMounted(() => {

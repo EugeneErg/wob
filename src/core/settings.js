@@ -33,4 +33,4 @@ export function setSetting(key, value) {
   return s
 }
 
-export const fpsLabel = (n) => (n ? `${n}` : 'без предела')
+export const fpsLabel = (n) => (n ? `${n}` : 'unlimited')

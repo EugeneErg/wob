@@ -13,23 +13,20 @@ const { check } = await import('./assert.mjs')
 const lib = await import('../src/core/library.js')
 const { seed } = await import('./seed.mjs')
 seed(lib)
-const { ChainRun, categoryOf, openNodes, needsRouting } = await import('../src/core/chain.js')
+const { ChainRun, categoryOf, openNodes } = await import('../src/core/chain.js')
 const { saveRun, runsFor, bestRun, formatTime, KIND } = await import('../src/core/replays.js')
 
 seed(lib)
 const story = lib.stories()[0]
 const chapters = lib.chaptersOf(story.id)
 const ch = chapters[0]
-console.log(`глава «${ch.title}»: уровней ${ch.nodes.length}, троп ${ch.edges.length}`)
-console.log('нужна привязка продолжения:', needsRouting(ch))
+const links = ch.nodes.reduce((n, x) => n + (x.next || []).length, 0)
+console.log(`глава «${ch.title}»: точек ${ch.nodes.length}, связей ${links}`)
 
-// Привязываем конец главы к следующей — иначе зачёта не будет
-if (chapters[1]) {
-  const last = ch.nodes.find((n) => !ch.edges.some((e) => e.from === n.levelId))
-  last.next = chapters[1].id
-  lib.save()
-  console.log(`выход главы: «${lib.level(last.levelId).name}» → «${chapters[1].title}»`)
-}
+// Встроенная библиотека уже сшита: последняя точка главы ведёт в первую точку
+// следующей. Отдельно привязывать нечего.
+const out = ch.nodes.find((n) => (n.next || []).some((c) => !ch.nodes.some((m) => m.id === c)))
+if (out) console.log(`выход главы: «${lib.level(out.levelId).name}» → «${chapters[1].title}»`)
 
 // --- прохождение главы, как его ведёт App -----------------------------------
 const seg = (ticks, finished = true) => ({ ticks, finished, seed: 1, rate: 60, input: [], camera: [], checks: [] })
@@ -38,17 +35,18 @@ const run = new ChainRun({ kind: KIND.CHAPTER, targetId: ch.id })
 console.log('\nход попытки:')
 let guard = 0
 while (guard++ < 20) {
-  const open = openNodes(ch, run.done).filter((id) => !run.done.has(id))
+  const open = openNodes(ch, run.done, { chapters }).filter((id) => !run.done.has(id))
   if (!open.length) break
-  const next = open[0]
-  // первый заход на второй уровень проваливаем — время всё равно идёт
-  if (next === ch.nodes[1]?.levelId && !run.attempts(next)) {
-    run.push(seg(150, false), { levelId: next })
-    console.log(`  ${lib.level(next).name}: слил, +${formatTime(150)}, всего ${formatTime(run.ticks)}`)
+  const node = ch.nodes.find((n) => n.id === open[0])
+  const name = lib.level(node.levelId).name
+  // первый заход на вторую точку проваливаем — время всё равно идёт
+  if (node.id === ch.nodes[1]?.id && !run.attempts(node.levelId)) {
+    run.push(seg(150, false), { levelId: node.levelId, nodeId: node.id })
+    console.log(`  ${name}: слил, +${formatTime(150)}, всего ${formatTime(run.ticks)}`)
     continue
   }
-  run.push(seg(300), { levelId: next })
-  console.log(`  ${lib.level(next).name}: прошёл, всего ${formatTime(run.ticks)}`)
+  run.push(seg(300), { levelId: node.levelId, nodeId: node.id })
+  console.log(`  ${name}: прошёл, всего ${formatTime(run.ticks)}`)
   if (categoryOf(ch, run.done)) break
 }
 
@@ -75,10 +73,10 @@ console.log('  попыток главы в хранилище:', all.length, '|
 // Обычная карта это учтёт, а попытка спидрана — нет: у неё свой прогресс.
 lib.markDone(ch.nodes[0].levelId)
 const fresh = new ChainRun({ kind: KIND.CHAPTER, targetId: ch.id })
-const openForRun = openNodes(ch, fresh.done)
-const openForSave = ch.nodes.filter((n) => lib.levelOpen(ch, n.levelId)).map((n) => n.levelId)
+const openForRun = openNodes(ch, fresh.done, { chapters })
+const openForSave = ch.nodes.filter((n) => lib.nodeOpen(ch, n.id)).map((n) => n.id)
 console.log('\nстарое сохранение не открывает главу с середины:')
-console.log('  открыто в новой попытке:', openForRun.length, 'узел(ов)')
+console.log('  открыто в новой попытке:', openForRun.length, 'точк(и)')
 console.log('  открыто по общему прогрессу:', openForSave.length)
 console.log('  попытка строже:', openForRun.length <= openForSave.length)
 

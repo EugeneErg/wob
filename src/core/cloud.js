@@ -11,7 +11,7 @@
 // перевода он после переезда указывал бы в пустоту.
 
 import { api } from './api.js'
-import { exportAll, importBundle, isDone, library } from './library.js'
+import { exportAll, importBundle, isDone, library, save } from './library.js'
 
 /** Отправить локальную библиотеку в облако. Возвращает {stories, idMap, warnings}. */
 export async function uploadLibrary() {
@@ -77,3 +77,29 @@ export async function downloadStory(storyId) {
 }
 
 export const downloadLibrary = async () => importBundle(await api.get('/api/library/export'))
+
+/**
+ * Подтянуть полку ассетов из аккаунта.
+ *
+ * Записи на полку уходят поштучно через очередь, а чтение нужно ровно одно —
+ * при первом открытии редактора в чистом браузере, иначе палитра там будет
+ * пуста при полной полке в аккаунте.
+ *
+ * Слияние по id, и серверная версия побеждает: очередь пишет туда сразу же,
+ * значит расхождение означает, что здесь лежит устаревшая копия, а не чья-то
+ * несохранённая правка.
+ */
+export async function pullAssets() {
+  const { assets } = await api.get('/api/assets')
+  const lib = library()
+  const byId = new Map(lib.assets.map((a) => [a.id, a]))
+
+  for (const a of assets) {
+    byId.set(a.id, { id: a.id, title: a.title, entities: a.entities })
+  }
+
+  lib.assets = [...byId.values()]
+  save()
+
+  return lib.assets
+}
