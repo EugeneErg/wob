@@ -25,6 +25,17 @@
             </span>
           </button>
 
+          <!--
+            Предложение доиграть на свежей версии. Показывается только когда
+            переход возможен: предлагать то, чего нельзя, хуже, чем молчать.
+          -->
+          <p v-if="offers[slot.id]?.available" class="offer">
+            {{ offers[slot.id].reason }}
+            <button class="link go" :disabled="moving === slot.id" @click="upgrade(slot)">
+              {{ moving === slot.id ? 'Переносим…' : `Перейти на версию ${offers[slot.id].version}` }}
+            </button>
+          </p>
+
           <div class="acts">
             <button class="link" @click="rename(slot)">Rename</button>
             <button class="link" @click="erase(slot)">Start over</button>
@@ -49,13 +60,56 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { deleteSlot, eraseSlot, renameSlot, slotsFor, startSlot } from '../core/slots.js'
+import {
+  deleteSlot, eraseSlot, renameSlot, slotsFor, startSlot, takeUpgrade, upgradeOffer,
+} from '../core/slots.js'
 import { story as getStory } from '../core/library.js'
 
 const props = defineProps({ storyId: { type: String, required: true } })
 defineEmits(['back', 'play'])
 
 const slots = ref([])
+
+/*
+ * Что можно предложить каждому прогону.
+ *
+ * Спрашивается по одному запросу на слот: их не больше горстки, а вопрос у
+ * каждого свой — он зависит от того, где именно остановился этот прогон.
+ *
+ * Отказ не показывается. «Нельзя перейти, потому что вашего уровня больше нет»
+ * — это не новость для игрока, который просто хочет доиграть; он и так доиграет
+ * свою версию.
+ */
+const offers = ref({})
+const moving = ref(null)
+
+async function askOffers() {
+  const found = {}
+
+  await Promise.all(slots.value.map(async (s) => {
+    try {
+      found[s.id] = await upgradeOffer(s.id)
+    } catch {
+      // Молча: предложение — не то, ради чего человек сюда пришёл, и падать
+      // экраном сохранений из-за него неправильно.
+    }
+  }))
+
+  offers.value = found
+}
+
+async function upgrade(slot) {
+  moving.value = slot.id
+
+  try {
+    await takeUpgrade(slot.id)
+    await load()
+  } catch (e) {
+    failed.value = e.message
+  } finally {
+    moving.value = null
+  }
+}
 const max = ref(3)
 const loading = ref(true)
 const busy = ref(false)
@@ -80,6 +134,7 @@ async function load() {
     const data = await slotsFor(props.storyId)
     slots.value = data.slots
     max.value = data.max
+    askOffers()
   } catch (e) {
     failed.value = `Could not load your runs: ${e.message}`
   } finally {
@@ -160,6 +215,11 @@ const when = (iso) => new Date(iso).toLocaleDateString()
 .label { display: block; font-family: var(--font-display); font-size: 19px; margin-top: 2px; }
 .meta { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
 
+.offer {
+  margin: 6px 0 0; font-size: 12px; color: #e8c88f;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.offer .go { color: #e8c88f; }
 .acts { display: flex; gap: 14px; padding: 0 18px 12px; }
 .link {
   background: none; border: 0; padding: 0; font: inherit; font-size: 12px;

@@ -36,9 +36,9 @@
     :mode="mode" :chapter-id="chapterId"
     :run="chain" :speedrun="speedrun" :sr-scope="srScope" :in-story="chain?.kind === 'story'"
     :release="rel"
-    :release-id="releaseId" :releases="storyReleases" :story-id="storyId"
+    :release-id="releaseId" :story-id="storyId"
     @back="leaveChapter" @play="play" @edit="editLevel"
-    @runs="openRuns" @chapter="openChapter" @version="pickVersion"
+    @runs="openRuns" @chapter="openChapter"
     @start="startChapterHere"
   />
   <GameView
@@ -69,6 +69,8 @@
     @back="at = cameFrom"
   />
 
+  <SaveState />
+
   <!-- The result of an attempt, shown over the map once the chain is done. -->
   <div v-if="finished" class="verdict">
     <p class="eyebrow">{{ finished.kind === 'story' ? 'Story complete' : 'Chapter complete' }}</p>
@@ -91,6 +93,7 @@ import ChapterMap from './views/ChapterMap.vue'
 import GameView from './views/GameView.vue'
 import EditorView from './views/EditorView.vue'
 import RunsView from './views/RunsView.vue'
+import SaveState from './components/SaveState.vue'
 import {
   level as getLevel, chapter as getChapter,
   story as getStory, chaptersOf, isDone,
@@ -99,7 +102,7 @@ import {
   ChainRun, categoryOf, segmentRecord,
   activeChapter, doneByChapter, storyCategoryOf,
 } from './core/chain.js'
-import { levelHash, release, levelFrom, chapterFrom, latestRelease, releases } from './core/releases.js'
+import { levelHash, release, levelFrom, chapterFrom, releaseOfStory } from './core/releases.js'
 import { saveRun, formatTime, KIND } from './core/replays.js'
 import { remember } from './core/recent.js'
 import { setProgress } from './core/library.js'
@@ -163,12 +166,6 @@ const rel = computed(() => (releaseId.value ? release(releaseId.value) : null))
 // already editing the next version.
 const lvlOf = (id) => (rel.value ? levelFrom(rel.value, id) : getLevel(id))
 const chapOf = (id) => (rel.value ? chapterFrom(rel.value, id) : getChapter(id))
-
-function pickVersion(id) {
-  releaseId.value = id || null
-  chain.value = null      // switching version ends the attempt: it would be a different game
-  srScope.value = null
-}
 
 const finished = ref(null)
 
@@ -260,7 +257,7 @@ async function resume(spot) {
 
   loadingStory.value = false
   storyId.value = spot.storyId
-  releaseId.value = latestRelease(spot.storyId)?.id || null
+  releaseId.value = playableRelease(spot.storyId)
 
   if (spot.chapterId) {
     chapterId.value = spot.chapterId
@@ -306,15 +303,13 @@ async function openStory(id, speedrun = false) {
   // Signed out there is nothing to choose between, so the question is not
   // asked.
   if (mode.value === 'play' && session.status === 'signed-in') {
-    releaseId.value = latestRelease(id)?.id || null
+    releaseId.value = playableRelease(id)
     speedrunPending.value = speedrun
     at.value = 'slots'
 
     return
   }
-  // Default to the latest release: playing the most recent published version is
-  // the sensible default, and the author's draft can still be chosen explicitly.
-  releaseId.value = mode.value === 'play' ? (latestRelease(id)?.id || null) : null
+  releaseId.value = mode.value === 'play' ? playableRelease(id) : null
   if (speedrun) startStory(true)
   showStory()
 }
@@ -375,13 +370,38 @@ async function leaveStory() {
  * принятия этого решения: раньше в четырёх местах стояло at = 'chapters', и
  * добавить пятое, забыв про режим, было бы вопросом времени.
  */
-// Опубликованные версии текущей истории. Жил в списке глав; список ушёл, а
-// выбор версии остался нужен — он переехал в шапку карты.
-const storyReleases = computed(() => (storyId.value ? releases(storyId.value) : []))
+/*
+ * Какой релиз играется.
+ *
+ * Называет его сервер: каталог отдаёт releaseId вместе с содержимым, и другого
+ * ответа быть не может — игрок получает ту версию, которую ему выдали.
+ *
+ * Раньше здесь стоял latestRelease() из местного склада снимков, и для истории
+ * из каталога он всегда возвращал null. Молча выключалось многое: таблица
+ * рекордов, оценка уровня и голосование привязаны к релизу и при null просто
+ * не показывались. То есть даже канон игрался «как черновик».
+ */
+const playableRelease = (id) => releaseOfStory(id)?.id || null
 
+/*
+ * Куда попадает игрок, выбрав сохранение.
+ *
+ * Раньше при неудаче он просто оказывался обратно на витрине — без слова о том,
+ * что случилось. Так выглядело сохранение, чья версия истории удалена: нажатие
+ * не делало ничего, и понять это было нельзя.
+ *
+ * Молчание тут хуже отказа: человек жмёт снова и снова, потому что у него нет
+ * оснований думать, что кнопка сломана.
+ */
 function showStory() {
   if (mode.value === 'edit') { at.value = 'chapters'; return }
-  if (!enterActiveChapter()) at.value = 'stories'
+  if (enterActiveChapter()) return
+
+  storyError.value = getStory(storyId.value)
+    ? 'В этом сохранении нет ни одной открытой главы. Возможно, версия истории, на которой оно начиналось, больше не существует — начните новый прогон.'
+    : 'Эта история больше недоступна: версия, на которой шёл прогон, удалена.'
+
+  at.value = 'stories'
 }
 
 function enterActiveChapter() {
@@ -397,6 +417,24 @@ function enterActiveChapter() {
   if (!id) return false
 
   openChapter(id)
+
+  /*
+   * В спидране истории первый уровень начинается сам, в обычной игре — нет.
+   *
+   * Разница не в удобстве, а в том, что означает остановка на карте. В спидране
+   * истории время уже идёт, и любая пауза на выбор — это отнятые у игрока
+   * секунды; а выбирать там нечего: и глава, и уровень вычисляются однозначно.
+   *
+   * В обычном прохождении карта — не лишний шаг, а место, где принимается
+   * решение: пройти эту главу или уровень на время или просто сыграть. Отняв
+   * карту, я отнял бы этот выбор, что и сделал предыдущей правкой.
+   */
+  if (srScope.value !== 'story') return true
+
+  const chapter = chapters.find((c) => c.id === id)
+  const start = chapter?.nodes.find((n) => n.id === story.start) || chapter?.nodes[0]
+
+  if (start) play(start.levelId)
 
   return true
 }

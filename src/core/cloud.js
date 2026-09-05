@@ -11,7 +11,7 @@
 // перевода он после переезда указывал бы в пустоту.
 
 import { api } from './api.js'
-import { exportAll, importBundle, isDone, library, save } from './library.js'
+import { exportAll, hydrateLibrary, importBundle, isDone, library, save } from './library.js'
 
 /** Отправить локальную библиотеку в облако. Возвращает {stories, idMap, warnings}. */
 export async function uploadLibrary() {
@@ -77,6 +77,29 @@ export async function downloadStory(storyId) {
 }
 
 export const downloadLibrary = async () => importBundle(await api.get('/api/library/export'))
+
+/**
+ * Забрать полку автора с сервера.
+ *
+ * Не downloadLibrary(): тот ведёт себя как открытие файла — добавляет к тому,
+ * что уже лежит в браузере, и сохраняет результат. Для собственных черновиков
+ * это неверно вдвойне. Удалённая на другой машине история осталась бы здесь
+ * навсегда, а копия в localStorage жила бы своей жизнью рядом с оригиналом в
+ * аккаунте.
+ *
+ * Два запроса, потому что нужны две разные вещи: выгрузка несёт главы и уровни,
+ * полка — начало истории, которого в формате файла нет.
+ */
+export async function pullLibrary() {
+  const [bundle, shelf] = await Promise.all([
+    api.get('/api/library/export'),
+    api.get('/api/library'),
+  ])
+
+  hydrateLibrary(bundle, shelf)
+
+  return shelf
+}
 
 /**
  * Подтянуть полку ассетов из аккаунта.

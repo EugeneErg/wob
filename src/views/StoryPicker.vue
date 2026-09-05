@@ -17,6 +17,15 @@
       Раньше всё лежало одной кучей: собственный черновик стоял рядом с каноном
       и выглядел его частью.
     -->
+    <p v-if="loading" class="state">Loading…</p>
+    <p v-else-if="failed" class="state err">{{ failed }}</p>
+    <p v-else-if="mode === 'edit' && session.status !== 'signed-in'" class="state">
+      Sign in to make stories — they are kept in your account.
+    </p>
+    <p v-else-if="mode === 'edit' && !list.length" class="state">
+      Nothing here yet. Press “New story” to start one.
+    </p>
+
     <template v-for="group in groups" :key="group.key">
       <h3 v-if="mode === 'play' && group.items.length" class="group">
         {{ group.title }}
@@ -51,7 +60,17 @@
                 @click="$emit('open', s.id, intent !== 'speedrun')"
               >{{ intent === 'speedrun' ? 'Play' : 'Speedrun' }}</button>
             </template>
-            <button v-else class="btn small primary" @click="$emit('open', s.id)">Open</button>
+            <!--
+              Взять историю себе. Работает и с каноном: копия принадлежит
+              взявшему, оригинал не трогается, а предложить правки обратно —
+              отдельное решение. Кнопки не было, потому что не было и маршрута.
+            -->
+            <button
+              v-if="mode === 'play' && releaseOf(s.id)"
+              class="btn small" :disabled="forking === s.id"
+              @click="fork(s)"
+            >{{ forking === s.id ? 'Копируем…' : 'Взять себе' }}</button>
+            <button v-else-if="mode !== 'play'" class="btn small primary" @click="$emit('open', s.id)">Open</button>
             <template v-if="mode === 'edit'">
               <button class="btn small" @click="cover(s)">Cover</button>
               <button class="btn small danger" @click="drop(s)">Delete</button>
@@ -82,7 +101,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as lib from '../core/library.js'
 import { loadCatalog, loadStory } from '../core/catalog.js'
-import { downloadLibrary } from '../core/cloud.js'
+import { pullLibrary } from '../core/cloud.js'
+import { forkRelease } from '../core/catalog.js'
 import { deleteStory } from '../core/authoring.js'
 import { makeStory } from '../core/making.js'
 import { session } from '../core/session.js'
@@ -99,9 +119,52 @@ const props = defineProps({
 })
 const emit = defineEmits(['back', 'open'])
 
-const list = ref(lib.stories())
+const list = ref([...lib.stories()])
 const shelf = ref(null)
-const refresh = () => (list.value = lib.stories())
+
+/*
+ * Копия списка, а не он сам.
+ *
+ * lib.stories() каждый раз возвращает один и тот же массив, а загрузка меняет
+ * его на месте. Присваивание той же ссылки Vue не считает изменением, поэтому
+ * истории приезжали, ложились в память и не появлялись на экране — до
+ * перезагрузки, когда список читался заново уже наполненным.
+ *
+ * Копия поверхностная: сами истории те же объекты, так что правка названия
+ * по-прежнему меняет библиотеку, а не отражение.
+ */
+const refresh = () => (list.value = [...lib.stories()])
+
+const forking = ref(null)
+
+/*
+ * Какая версия истории лежит на витрине.
+ *
+ * Карточки берутся из библиотеки, а номер версии знает только витрина: форк
+ * делается от конкретной выпущенной версии, а не от «истории вообще».
+ */
+const releaseOf = (id) => [...(shelf.value?.canon || []), ...(shelf.value?.published || [])]
+  .find((x) => x.id === id)?.releaseId || null
+
+/*
+ * Форк чужой истории.
+ *
+ * Копия появляется на полке автора сразу — до всякой правки: взять историю и
+ * открыть её редактор само по себе решение, и результат должен быть виден.
+ */
+async function fork(s) {
+  forking.value = s.id
+  failed.value = null
+
+  try {
+    await forkRelease(releaseOf(s.id))
+    failed.value = `«${s.title}» скопирована к вам — откройте её в разделе Create.`
+  } catch (e) {
+    failed.value = e.message
+  } finally {
+    forking.value = null
+  }
+}
 
 // Разделение опирается на каталог: сервер и так отдаёт канон и опубликованное
 // по отдельности, а всё, чего в нём нет, — черновики этого автора.
@@ -153,7 +216,10 @@ onMounted(async () => {
     failed.value = null
 
     try {
-      await downloadLibrary()
+      // Каждый раз с сервера. Держать черновики ещё и в браузере незачем: они
+      // живут в аккаунте, правки уезжают туда по одной, и вторая копия здесь
+      // расходилась бы с первой молча.
+      await pullLibrary()
       refresh()
     } catch (e) {
       failed.value = e.message

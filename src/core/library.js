@@ -66,6 +66,10 @@ export function hydrate(bundle) {
     title: bundle.title,
     cover: bundle.cover || '#1a2b33',
     chapters: (bundle.chapters || []).map((c) => c.id),
+    // Откуда начинается история. Каталог это отдаёт, а сюда не доезжало — и
+    // из-за этого игрок каждый раз выбирал первый уровень сам, хотя выбора у
+    // него ровно один.
+    start: bundle.startNodeId ?? null,
     hot: [],
   })
 
@@ -82,6 +86,86 @@ export function hydrate(bundle) {
   remote.add(bundle.id)
 
   return cache
+}
+
+/**
+ * Полка автора, пришедшая с сервера.
+ *
+ * Отдельно от hydrate(), который кладёт одну историю из каталога: здесь приезжает
+ * всё, что у автора есть, и приезжает целиком — то, чего в ответе нет, на
+ * сервере не существует. Прошлый ответ поэтому вычищается, а не дополняется.
+ *
+ * Всё помечается серверным, и это главное: save() такое не пишет в localStorage.
+ * Черновики автора живут в аккаунте, и вторая их копия в браузере — не запас, а
+ * способ однажды показать историю, которой уже нет, или отправить правку поверх
+ * содержимого, которого автор не видел.
+ *
+ * shelf несёт то, чего нет в файле выгрузки: где начинается история и на какой
+ * она версии.
+ */
+export function hydrateLibrary(bundle, shelf = null) {
+  const lib = library()
+  const extra = new Map((shelf?.stories || []).map((s) => [s.id, s]))
+
+  // Уходит и прошлый ответ сервера, и то, что успело осесть в localStorage до
+  // того, как черновики перестали кешироваться. Иначе у всех, кто играл раньше,
+  // рядом с приехавшей историей осталась бы её вчерашняя копия под тем же id:
+  // два одинаковых названия в списке, и правится при этом только одно.
+  const incoming = {
+    stories: new Set((bundle.stories || []).map((s) => s.id)),
+    chapters: new Set((bundle.chapters || []).map((c) => c.id)),
+    levels: new Set((bundle.levels || []).map((l) => l.id)),
+  }
+
+  lib.stories = lib.stories.filter((s) => !remote.has(s.id) && !incoming.stories.has(s.id))
+  lib.chapters = lib.chapters.filter((c) => !remote.has(c.id) && !incoming.chapters.has(c.id))
+  lib.levels = lib.levels.filter((l) => !remote.has(l.id) && !incoming.levels.has(l.id))
+  remote.clear()
+
+  for (const s of bundle.stories || []) {
+    const more = extra.get(s.id)
+
+    lib.stories.push({
+      ...s,
+      chapters: [...(s.chapters || [])],
+      hot: s.hot || [],
+      // Файл выгрузки начала истории не несёт, поэтому оно берётся с полки. Без
+      // него автор, выбравший точку старта, после перезагрузки видел «nowhere yet».
+      start: more?.startNodeId ?? s.start ?? null,
+      intro: more?.intro ?? s.intro ?? '',
+    })
+    remote.add(s.id)
+  }
+
+  const owner = (chapterId) =>
+    (bundle.stories || []).find((s) => (s.chapters || []).includes(chapterId))?.id || null
+
+  for (const c of bundle.chapters || []) {
+    lib.chapters.push({ ...c, storyId: owner(c.id), hot: c.hot || [], nodes: c.nodes || [] })
+    remote.add(c.id)
+  }
+
+  for (const l of bundle.levels || []) {
+    lib.levels.push({ ...l, hot: l.hot || [] })
+    remote.add(l.id)
+  }
+
+  // Ссылка на точку, которой нет, хуже её отсутствия: на карте это выглядит
+  // дорогой вперёд, а за ней ничего.
+  const knownNodes = new Set(lib.chapters.flatMap((c) => (c.nodes || []).map((n) => n.id)))
+  for (const c of lib.chapters) {
+    for (const n of c.nodes || []) n.next = (n.next || []).filter((x) => knownNodes.has(x))
+  }
+
+  // Ассеты — полка мастерской, а не содержимое истории: они переживают и
+  // аккаунт, и браузер, поэтому остаются своими и сохраняются как раньше.
+  const byId = new Map(lib.assets.map((a) => [a.id, a]))
+  for (const a of bundle.assets || []) byId.set(a.id, structuredClone(a))
+  lib.assets = [...byId.values()]
+
+  save()
+
+  return lib
 }
 
 /** Забыть всё серверное — например, при выходе из аккаунта. */
@@ -498,6 +582,137 @@ export function markDone(levelId) {
 // Точка открыта, если в неё не ведёт ничего (значит она вход) или пройдена
 // хотя бы одна ведущая к ней. Считается по точкам, а не по уровням: уровень
 // может стоять в нескольких местах, и пройденный в одном остальные не открывает.
+/**
+ * Замкнёт ли связь from → to кольцо.
+ *
+ * Кольцо здесь не «некрасиво», а смертельно. Точка открывается, если пройден
+ * хоть один из ведущих в неё родителей (nodeOpen), а у каждой точки кольца
+ * родитель есть и ни один не пройден. Значит кольцо запирает само себя: ни
+ * одна его точка никогда не откроется, и весь кусок истории за ним пропадает
+ * молча — сборка соберётся, экран нарисуется, а играть будет нечего.
+ *
+ * Считаем по всей библиотеке, а не по одной главе: связь может уходить на
+ * соседнюю карту, и кольцо запросто складывается из двух глав, в каждой из
+ * которых по отдельности всё честно.
+ *
+ * Вопрос ставится до правки, а не после: «дошли ли из to обратно в from». Если
+ * дошли, то ребро from → to замкнёт круг.
+ */
+export function wouldCycle(fromNodeId, toNodeId) {
+  if (!fromNodeId || !toNodeId) return false
+  if (fromNodeId === toNodeId) return true
+
+  const nextOf = new Map()
+  for (const c of library().chapters) {
+    for (const n of c.nodes || []) nextOf.set(n.id, n.next || [])
+  }
+
+  const seen = new Set([toNodeId])
+  const stack = [toNodeId]
+
+  while (stack.length) {
+    const at = stack.pop()
+    if (at === fromNodeId) return true
+
+    for (const child of nextOf.get(at) || []) {
+      if (seen.has(child)) continue
+      seen.add(child)
+      stack.push(child)
+    }
+  }
+
+  return false
+}
+
+/** Граф истории целиком: кто куда ведёт и какая точка в какой главе. */
+function graph() {
+  const nextOf = new Map()
+  const chapterOf = new Map()
+
+  for (const c of library().chapters) {
+    for (const n of c.nodes || []) {
+      nextOf.set(n.id, n.next || [])
+      chapterOf.set(n.id, c.id)
+    }
+  }
+
+  return { nextOf, chapterOf }
+}
+
+/**
+ * Главы, в которые путь возвращается после того, как из них вышел.
+ *
+ * Правило: выйдя из главы, назад в неё дороги нет. Внутри главы ходить можно
+ * сколько угодно — запрещено именно «вышел и вернулся», потому что глава тогда
+ * перестаёт быть отрезком пути и становится двумя разными местами с одним
+ * именем. Прогресс считается по главам (открыта, пройдена, следующая), и глава,
+ * пройденная наполовину, потом дописанная, а потом снова открытая, ломает
+ * каждый из этих трёх ответов.
+ *
+ * Проверка ведётся по пути, а не по «графу глав»: кольцо в графе глав может не
+ * иметь ни одного настоящего пути за собой, и запрещать такое значило бы
+ * отвергать связи, по которым никто никогда не пройдёт.
+ */
+function revisitedChapters(nextOf, chapterOf) {
+  const bad = new Set()
+
+  for (const [from, children] of nextOf) {
+    const home = chapterOf.get(from)
+
+    for (const child of children) {
+      const there = chapterOf.get(child)
+      if (there === undefined || there === home) continue
+
+      // Вышли из главы. Дойти обратно в неё — и есть второй заход.
+      const seen = new Set([child])
+      const stack = [child]
+
+      while (stack.length) {
+        const at = stack.pop()
+
+        if (chapterOf.get(at) === home) {
+          bad.add(home)
+          break
+        }
+
+        for (const n of nextOf.get(at) || []) {
+          if (seen.has(n)) continue
+          seen.add(n)
+          stack.push(n)
+        }
+      }
+    }
+  }
+
+  return bad
+}
+
+/**
+ * Заставит ли новая связь путь зайти в какую-то главу дважды.
+ *
+ * Сравниваем «до» и «после», а не просто смотрим на результат: в библиотеке
+ * может уже лежать история, нарисованная до этого правила, и отвечать на любую
+ * правку отказом за чужой давний грех — значит запереть автора в редакторе без
+ * возможности что-либо починить. Отказ выдаётся только за то, что добавляет
+ * именно эта связь.
+ */
+export function wouldRevisitChapter(fromNodeId, toNodeId) {
+  if (!fromNodeId || !toNodeId) return false
+
+  const { nextOf, chapterOf } = graph()
+  const before = revisitedChapters(nextOf, chapterOf)
+
+  const withEdge = new Map()
+  for (const [id, next] of nextOf) withEdge.set(id, [...next])
+  withEdge.set(fromNodeId, [...(withEdge.get(fromNodeId) || []), toNodeId])
+
+  for (const c of revisitedChapters(withEdge, chapterOf)) {
+    if (!before.has(c)) return true
+  }
+
+  return false
+}
+
 export function nodeOpen(ch, nodeId) {
   const all = library().chapters
   const incoming = all.flatMap((c) => c.nodes.filter((n) => (n.next || []).includes(nodeId)))

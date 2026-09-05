@@ -17,8 +17,8 @@ const lib = await import('../src/core/library.js')
 const { seed } = await import('./seed.mjs')
 seed(lib)
 const {
-  publish, releases, latestRelease, drifted, release, levelFrom, _chapterFrom,
-  _storyHash, levelHash, checkRecord, seedFor,
+  noteRelease, drifted, release, releaseOfStory, levelFrom, _chapterFrom,
+  storyHash, levelHash, checkRecord, seedFor,
 } = await import('../src/core/releases.js')
 const { saveRun, _bestRun, KIND } = await import('../src/core/replays.js')
 const { contentFor } = await import('../src/core/content.js')
@@ -28,13 +28,39 @@ const st = lib.stories()[0]
 const ch = lib.chaptersOf(st.id)[0]
 const lvlId = ch.nodes[0].levelId
 
-check('пока выпусков нет, черновик считается разошедшимся', drifted(st.id))
-check('и последнего выпуска тоже нет', latestRelease(st.id) === null)
+/*
+ * Выпуск делает сервер, а не браузер.
+ *
+ * Раньше здесь звали publish() из localStorage-склада: он резал снимок на месте
+ * и считал номер по длине местного списка. Склада больше нет — выпуск приходит
+ * с сервера вместе с содержимым, а клиент его только помнит.
+ *
+ * Здесь сервер изображается: снимок берётся глубоким копированием (он обязан
+ * пережить любые дальнейшие правки черновика), номер и хеш назначаются так же,
+ * как их назначил бы сервер.
+ */
+let cut = 0
+const publishOnServer = () => {
+  const draft = lib.story(st.id)
+
+  return noteRelease({
+    id: st.id,
+    title: draft.title,
+    releaseId: `rel-${st.id}-${++cut}`,
+    version: cut,
+    hash: storyHash(draft),
+    chapters: structuredClone(lib.chaptersOf(st.id)),
+    levels: structuredClone(lib.library().levels),
+  })
+}
+
+check('пока выпусков нет, черновик считается разошедшимся', drifted(st.id, null))
+check('и загруженного выпуска тоже нет', releaseOfStory(st.id) === null)
 
 // --- выпускаем ---------------------------------------------------------------
-const v1 = publish(st.id, 'первая версия')
+const v1 = publishOnServer()
 check('выпуск создан с номером 1', v1.version === 1)
-check('после выпуска черновик совпадает с ним', !drifted(st.id))
+check('после выпуска черновик совпадает с ним', !drifted(st.id, v1.hash))
 check('выпуск несёт содержимое, а не ссылки',
   v1.levels.length > 0 && v1.chapters.length > 0 && !!v1.story)
 
@@ -51,7 +77,7 @@ draft.entities.push({
 })
 lib.save()
 
-check('черновик снова разошёлся с выпуском', drifted(st.id))
+check('черновик снова разошёлся с выпуском', drifted(st.id, v1.hash))
 check('в выпуске уровень не изменился', levelFrom(release(v1.id), lvlId).goal === goalBefore,
   `в выпуске ${levelFrom(release(v1.id), lvlId).goal}, в черновике ${lib.level(lvlId).goal}`)
 check('и отпечаток выпущенного уровня прежний', levelHash(levelFrom(release(v1.id), lvlId)) === hashBefore)
@@ -63,9 +89,9 @@ check('сид выпуска не совпал с сидом изменённо�
   seedFor(levelFrom(release(v1.id), lvlId)) !== seedFor(lib.level(lvlId)))
 
 // --- второй выпуск -----------------------------------------------------------
-const v2 = publish(st.id, 'после правки')
+const v2 = publishOnServer()
 check('номер увеличился', v2.version === 2)
-check('выпусков стало два, свежий первым', releases(st.id).length === 2 && releases(st.id)[0].version === 2)
+check('прошлый выпуск никуда не делся', release(v1.id) !== null && release(v2.id) !== null)
 check('первый выпуск не переписан', levelFrom(release(v1.id), lvlId).goal === goalBefore)
 check('во втором лежит правка', levelFrom(release(v2.id), lvlId).goal === goalBefore + 5)
 check('отпечатки выпусков отличаются', v1.hash !== v2.hash)

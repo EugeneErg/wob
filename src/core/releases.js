@@ -15,7 +15,7 @@
 // репозитория). Уровень может не меняться годами, но если поправили решатель,
 // старая запись всё равно пойдёт иначе. Поэтому запись хранит обе версии.
 
-import { library, story, chapter, level } from './library.js'
+import { story, chapter, level } from './library.js'
 
 // Версия правил симуляции. Поднимается вручную при любой правке физики или
 // поведения сущностей. Держать её в коде, а не в package.json, чтобы правка
@@ -189,45 +189,68 @@ const storyHashOf = (rel) =>
 // выпущенной главы, это не «тихо другая глава» — это новый номер релиза,
 // у которого своя таблица рекордов, а старая остаётся при старом релизе.
 
-const RELEASES = 'goo.releases.v1'
+/*
+ * Релиз — факт сервера, а не запись в браузере.
+ *
+ * Здесь долго лежал свой склад релизов в localStorage: publish() делал снимок
+ * истории и клал его рядом. Это было изобретением, а не реализацией — сервер
+ * всё это время умел ровно то, что нужно, и умел лучше. Снимок в браузере не
+ * видел никто, кроме сделавшего его автора: второй игрок не получал ни истории,
+ * ни таблицы рекордов, потому что в каталог попадает только выпущенное на
+ * сервере. Хуже того, номер релиза считался по длине местного списка, так что
+ * на другой машине тот же релиз назывался бы иначе.
+ *
+ * Теперь публикация — это запрос, а здесь остаётся только память о релизах,
+ * которые в этом сеансе уже загружены. Память нужна для проверки повторов:
+ * запись ссылается на релиз, и сверять её надо с содержимым релиза, а не с
+ * черновиком, который автор уже правит дальше.
+ */
+const known = new Map()
 
-const all = () => { try { return JSON.parse(localStorage.getItem(RELEASES)) || [] } catch { return [] } }
-const put = (list) => localStorage.setItem(RELEASES, JSON.stringify(list))
+/**
+ * Запомнить релиз, пришедший с сервера.
+ *
+ * Зовётся оттуда, где содержимое и так приезжает целиком, — при открытии
+ * истории из каталога. Отдельного запроса ради этого нет и быть не должно.
+ */
+export function noteRelease(bundle) {
+  if (!bundle?.releaseId) return null
 
-// Снимок берётся глубоким копированием: релиз обязан пережить любые
-// дальнейшие правки библиотеки, поэтому ссылаться на её объекты нельзя.
-export function publish(storyId, note = '') {
-  const s = story(storyId)
-  if (!s) return null
-  const lib = library()
-  const chapters = s.chapters.map(chapter).filter(Boolean)
-  const levelIds = new Set(chapters.flatMap((c) => c.nodes.map((n) => n.levelId)))
-  const list = all()
-  const prev = list.filter((r) => r.storyId === storyId)
   const rel = {
-    id: `rel-${storyId}-${prev.length + 1}`,
-    storyId,
-    version: prev.length + 1,           // «увеличенная цифра», как вы и просили
-    at: Date.now(),
-    note,
+    id: bundle.releaseId,
+    storyId: bundle.id,
+    version: bundle.version,
+    hash: bundle.hash,
+    story: { id: bundle.id, title: bundle.title, chapters: (bundle.chapters || []).map((c) => c.id) },
+    chapters: bundle.chapters || [],
+    levels: bundle.levels || [],
     rules: RULES_VERSION,
-    hash: storyHash(s),
-    // содержимое целиком, а не ссылки: релиз самодостаточен
-    story: structuredClone(s),
-    chapters: structuredClone(chapters),
-    levels: structuredClone(lib.levels.filter((l) => levelIds.has(l.id))),
   }
-  list.push(rel)
-  put(list)
+
+  known.set(rel.id, rel)
+
   return rel
 }
 
-export const releases = (storyId) =>
-  all().filter((r) => !storyId || r.storyId === storyId).sort((a, b) => b.version - a.version)
+/** Забыть загруженные релизы — витрина после входа и выхода другая. */
+export const forgetReleases = () => known.clear()
 
-export const release = (id) => all().find((r) => r.id === id) || null
+export const release = (id) => known.get(id) || null
 
-export const latestRelease = (storyId) => releases(storyId)[0] || null
+/**
+ * Релиз этой истории, если он в этом сеансе загружен.
+ *
+ * У истории на сервере релизов может быть много, но игроку выдают один — тот,
+ * что положен именно ему, — и приезжает он вместе с содержимым. Так что вопрос
+ * «какой релиз у этой истории» здесь всегда про загруженный.
+ */
+export function releaseOfStory(storyId) {
+  for (const rel of known.values()) {
+    if (rel.storyId === storyId) return rel
+  }
+
+  return null
+}
 
 // Уровень берётся из релиза, а не из живой библиотеки: играя релиз, игрок
 // играет именно то, что было выпущено, даже если автор уже правит следующий.
@@ -238,10 +261,16 @@ export function chapterFrom(rel, chapterId) {
   return rel?.chapters.find((c) => c.id === chapterId) || null
 }
 
-// Изменился ли черновик с последнего релиза — автору видно, что есть что
-// выпускать, а игроку, что он смотрит не самое свежее.
-export function drifted(storyId) {
-  const rel = latestRelease(storyId)
-  if (!rel) return true
-  return rel.hash !== storyHash(story(storyId))
+/**
+ * Изменился ли черновик с последнего релиза.
+ *
+ * Хеш последнего релиза называет сервер — он же и считает его при публикации.
+ * Раньше сравнивали с местным снимком, и ответ зависел от того, с какой машины
+ * смотреть: на чужой машине снимка не было, и черновик всегда выглядел
+ * невыпущенным.
+ */
+export function drifted(storyId, releaseHash) {
+  if (!releaseHash) return true
+
+  return releaseHash !== storyHash(story(storyId))
 }

@@ -5,6 +5,15 @@
 
     <AccountBadge class="badge" />
 
+    <!-- Вход без Google: виден только при включённом VITE_DEV_LOGIN. -->
+    <button
+      v-if="devLogin && session.status !== 'signed-in'"
+      class="btn small devlogin"
+      @click="signInAsDeveloper()"
+    >
+      Войти как разработчик
+    </button>
+
     <div class="content">
       <p class="eyebrow">Verlet physics · SVG · Vue</p>
       <h1 class="title">GOO</h1>
@@ -98,7 +107,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import demo from '../levels/menu.json' // the menu background is an ordinary level
 import { lastSpot } from '../core/recent.js'
 import { chapter as getChapter, story as getStory } from '../core/library.js'
-import { refresh, renderSignInButton, session } from '../core/session.js'
+import { devLogin, refresh, renderSignInButton, session, signInAsDeveloper } from '../core/session.js'
 
 defineEmits(['go', 'resume'])
 
@@ -164,6 +173,7 @@ const spot = computed(() => {
 <style scoped>
 .menu { position: absolute; inset: 0; overflow: hidden; }
 .bg { position: absolute; inset: 0; }
+.devlogin { position: absolute; top: 18px; left: 20px; z-index: 4; }
 .badge { position: absolute; top: 14px; right: 16px; z-index: 3; }
 .veil {
   position: absolute; inset: 0; pointer-events: none;

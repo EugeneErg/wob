@@ -9,6 +9,7 @@
 // браузере: закрытая вкладка уносит вечер. Два пути записи одних и тех же
 // данных вдобавок неизбежно расходятся, поэтому остался один — этот.
 
+import { api } from './api.js'
 import { enqueue } from './queue.js'
 
 export const createStory = (story, chapter) => enqueue({
@@ -53,6 +54,58 @@ export const createChapter = (storyId, chapter) => enqueue({
  * дробить это на три записи значило бы завести возможность сохранить карту
  * наполовину.
  */
+/*
+ * Мелкие правки карты: по одной на движение руки.
+ *
+ * Ниже лежит saveChapterMap, отправляющий карту целиком. Это неверная единица
+ * записи: подвинул одну точку — уехал весь набор, поэтому две правки в одной
+ * главе спорили всегда, даже если касались разных мест. Спор разнимали номером
+ * версии, а номер клиент был обязан угадать — отсюда и конфликты на создании
+ * уровня, которое ни с чем конфликтовать не может.
+ *
+ * Эти четыре ничего не угадывают. Разные точки не пересекаются, одна и та же
+ * сходится к последней правке — так же, как на любой доске с одновременным
+ * редактированием.
+ */
+export const moveNode = (storyId, chapterId, node) => enqueue({
+  storyId,
+  method: 'patch',
+  path: `/api/stories/${storyId}/chapters/${chapterId}/nodes/${node.id}`,
+  body: { x: node.x, y: node.y },
+})
+
+export const describeNode = (storyId, chapterId, node) => enqueue({
+  storyId,
+  method: 'patch',
+  path: `/api/stories/${storyId}/chapters/${chapterId}/nodes/${node.id}`,
+  body: { name: node.name || '', image: node.image || '', outro: node.outro || '' },
+})
+
+export const describeChapter = (storyId, chapter) => enqueue({
+  storyId,
+  method: 'patch',
+  path: `/api/stories/${storyId}/chapters/${chapter.id}`,
+  body: { title: chapter.title, image: chapter.image || '', map: chapter.map || '' },
+})
+
+/*
+ * Связи идут напрямую, а не через очередь, и их ответ ждут.
+ *
+ * Всё остальное здесь можно отправить и забыть: переезд точки, подпись, фон
+ * главы — сервер их не отвергает. Связь отвергает: она единственная способна
+ * замкнуть кольцо или вернуть путь в покинутую главу, и решает это сервер.
+ *
+ * Очередь при отказе 4xx молча выбрасывает запрос и идёт дальше. Для связи это
+ * означало расхождение: на экране линия есть, на сервере её нет — и автор видит
+ * у себя кольцо, которого в истории не существует. Поэтому здесь ответа ждут и
+ * при отказе снимают связь обратно.
+ */
+export const linkNodes = (storyId, from, to) =>
+  api.post(`/api/stories/${storyId}/links`, { from, to })
+
+export const unlinkNodes = (storyId, from, to) =>
+  api.del(`/api/stories/${storyId}/links/${from}/${to}`)
+
 export const saveChapterMap = (storyId, chapter) => enqueue({
   storyId,
   method: 'put',
@@ -69,7 +122,16 @@ export const saveChapterMap = (storyId, chapter) => enqueue({
   },
 })
 
-export const deleteChapter = (storyId, chapterId) => enqueue({
+/*
+ * Удаление главы ждёт ответа, а не уходит в очередь.
+ *
+ * Оно необратимо, и промолчать об отказе тут хуже всего: автор увидит, что
+ * главы нет, закроет вкладку — а на сервере она осталась.
+ */
+export const deleteChapter = (storyId, chapterId) =>
+  api.del(`/api/stories/${storyId}/chapters/${chapterId}`)
+
+const _deleteChapterQueued = (storyId, chapterId) => enqueue({
   storyId,
   method: 'del',
   path: `/api/stories/${storyId}/chapters/${chapterId}`,

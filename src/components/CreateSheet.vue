@@ -29,7 +29,7 @@
       <div class="row">
         <button type="button" class="btn small" @click="$emit('close')">Cancel</button>
         <button type="submit" class="btn small accent" :disabled="!draft.title.trim() || !!busy">
-          Create
+          {{ cta }}
         </button>
       </div>
     </form>
@@ -59,6 +59,16 @@ const props = defineProps({
 
   // { key, label, cta, kind: 'image' | 'video' }
   slots: { type: Array, default: () => [] },
+
+  /*
+   * С чего начать форму.
+   *
+   * Та же форма служит и правкой: заводить второй такой же экран ради
+   * «изменить название и картинку» значило бы обзавестись двумя формами,
+   * которые разойдутся при первом же новом поле. Пусто — значит создание.
+   */
+  initial: { type: Object, default: null },
+  cta: { type: String, default: 'Create' },
 })
 
 const emit = defineEmits(['close', 'create'])
@@ -66,7 +76,10 @@ const emit = defineEmits(['close', 'create'])
 const first = ref(null)
 const busy = ref(null)
 const failed = ref(null)
-const draft = ref({ title: '', ...Object.fromEntries(props.slots.map((s) => [s.key, ''])) })
+const draft = ref({
+  title: props.initial?.title || '',
+  ...Object.fromEntries(props.slots.map((s) => [s.key, props.initial?.[s.key] || ''])),
+})
 
 onMounted(() => nextTick(() => first.value?.focus()))
 

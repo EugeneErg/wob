@@ -5,7 +5,12 @@
       <h2>{{ ch?.title }}</h2>
       <template v-if="mode === 'edit'">
         <button class="btn small" @click="hotOpen = !hotOpen">Pinned assets</button>
-        <button class="btn small" @click="pic">Image</button>
+        <!--
+          Была кнопка «Image», менявшая только фон. Названия главы не менял
+          никто: ошибся при создании — и оно оставалось таким навсегда. Теперь
+          одна форма на оба поля, та же, что и при создании.
+        -->
+        <button class="btn small" @click="editingChapter = true">Edit chapter</button>
         <button class="btn small" @click="picking = 'place'">Place a level</button>
         <button class="btn small primary" @click="opening = true">New level</button>
       </template>
@@ -17,16 +22,12 @@
           {{ igt }}<i>{{ inStory ? 'whole story' : speedrun ? 'speedrun' : 'playthrough' }}</i>
         </span>
         <!--
-          Выбор версии и прогоны истории переехали сюда из списка глав вместе с
-          ним. Релиз заморожен, и играть можно как последний опубликованный, так
-          и черновик автора — но выбор должен быть там, где игрок находится.
+          Выбора версии здесь больше нет, и это не потеря функции, а отказ от
+          несуществовавшей. Список версий брался из склада снимков в браузере,
+          которого у игрока нет и не было: у него в списке всегда пусто, и
+          выпадающий список не показывался никогда. Сервер отдаёт ту версию,
+          которую этому игроку положено играть, — выбирать не из чего.
         -->
-        <label v-if="releases.length" class="ver">
-          <select :value="releaseId || ''" @change="$emit('version', $event.target.value || null)">
-            <option v-for="r in releases" :key="r.id" :value="r.id">Version {{ r.version }}</option>
-            <option value="">Author's draft</option>
-          </select>
-        </label>
         <!--
           Как проходить эту главу. Выбор жил на карточке в списке глав; список
           ушёл, и вместе с ним чуть не ушёл сам спидран главы — из истории он
@@ -67,6 +68,41 @@
         ref="map" class="map" :style="coverStyle(ch?.image)"
         @pointerdown="onEmpty" @pointermove="onMove" @pointerup="onUp" @pointerleave="onUp"
       >
+        <!--
+          Что сейчас произойдёт, сказано словами.
+          
+          Связи рисуются шифтом по второй точке, и узнать об этом было неоткуда:
+          подсказка внизу экрана перечисляла всё сразу, а на самой карте не было
+          ничего. Здесь строка появляется только когда точка выбрана, то есть
+          ровно в тот момент, когда вопрос «а дальше что» и возникает.
+        -->
+        <!--
+          Ручка связи. Тянут от неё к другой точке — жест видно, пока его
+          делаешь, и найти его нечего искать.
+
+          Раньше связь ставилась shift-кликом. Жест рабочий, но невидимый:
+          узнать о нём можно было только из подписи мелким текстом внизу экрана,
+          и человек, который её не прочёл, просто не мог соединить две точки.
+          Shift оставлен как второй способ — тем, кто уже привык.
+        -->
+        <button
+          v-if="mode === 'edit' && selectedNode"
+          class="handle"
+          :style="handleStyle"
+          title="Потяните отсюда к другой точке"
+          @pointerdown.stop="startWire"
+        />
+
+        <p v-if="mode === 'edit' && sel" class="linking">
+          Выбрано: <b>{{ selected?.name || 'точка' }}</b> — потяните за жёлтый кружок
+          к другой точке, чтобы соединить. Тот же жест разъединяет.
+        </p>
+
+        <!-- Линия, тянущаяся за курсором: без неё жест невидим. -->
+        <svg v-if="wire" class="paths ghostwire" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <line :x1="wire.from.x" :y1="wire.from.y" :x2="wire.to.x" :y2="wire.to.y" />
+        </svg>
+
         <svg class="paths" viewBox="0 0 100 100" preserveAspectRatio="none">
           <line
             v-for="(e, i) in shownEdges" :key="i"
@@ -77,6 +113,7 @@
 
         <button
           v-for="n in nodes" :key="n.id"
+          :data-node="n.id"
           class="node"
           :class="{ done: isDone(n.levelId), locked: isLocked(n), sel: sel === n.id,
                     ending: isEnding(n), exit: leavesChapter(n), start: isStart(n) }"
@@ -120,17 +157,33 @@
           @pointerdown.stop @click.stop
         >
           <div class="menu-head">{{ selected?.name }}</div>
-          <button class="item" @click="$emit('edit', selectedNode.levelId)">Edit</button>
+          <button class="item" @click="$emit('edit', selectedNode.levelId)">Edit level</button>
+          <!--
+            Название и картинка точки. Спрашивались при создании и не менялись
+            нигде: ошибся при создании — оставалось навсегда.
+          -->
+          <button class="item" @click="editing = selectedNode">Rename &amp; picture</button>
+          <!--
+            Название и картинка точки. Их спрашивают при создании и до сих пор
+            не давали изменить нигде: ошибся в имени — и оно оставалось таким
+            навсегда. Ролик здесь же, потому что у уровня он в конце.
+          -->
+          <button class="item" @click="editing = selectedNode">Rename & picture</button>
           <!--
             Начало истории назначается здесь, у самой точки. На доске это тоже
             можно — выделить главу и нажать узел «Story», — но там начало
             выбирается главой, а начинается история всё-таки с точки, и связать
             одно с другим на глаз было нельзя.
           -->
-          <button v-if="!isStart(selectedNode)" class="item" @click="startHere">
-            Start the story here
+          <!--
+            Начинать можно с любой точки, в том числе с той, в которую что-то
+            ведёт: это законная петля повествования — вернуться туда, где уже
+            был. Незаконно только кольцо, и его ловит проверка связей, а не
+            выбор начала.
+          -->
+          <button class="item" @click="startHere">
+            {{ isStart(selectedNode) ? 'Do not start the story here' : 'Start the story here' }}
           </button>
-          <span v-else class="menu-note">The story starts here</span>
 
           <button class="item" @click="picking = 'swap'">Show another level</button>
           <button class="item" @click="copy">Duplicate</button>
@@ -224,6 +277,28 @@
   </div>
 
   <CreateSheet
+    v-if="editing"
+    heading="This point"
+    name-label="Name on the map"
+    placeholder="What the player sees here"
+    :slots="nodeSlots"
+    :initial="{ title: editing.name || '', image: editing.image || '', outro: editing.outro || '' }"
+    cta="Save"
+    @close="editing = null"
+    @create="applyNode"
+  />
+  <CreateSheet
+    v-if="editingChapter"
+    heading="This chapter"
+    name-label="Chapter title"
+    placeholder="What happens here"
+    :slots="chapterSlots"
+    :initial="{ title: ch?.title || '', image: ch?.image || '' }"
+    cta="Save"
+    @close="editingChapter = false"
+    @create="applyChapter"
+  />
+  <CreateSheet
     v-if="opening"
     heading="New level"
     name-label="Name"
@@ -237,13 +312,15 @@
 <script setup>
 import { ref, computed } from 'vue'
 import * as lib from '../core/library.js'
-import { deleteLevel, renameStory, saveChapterMap } from '../core/authoring.js'
+import {
+  deleteLevel, describeChapter, describeNode, linkNodes, moveNode, renameStory,
+  saveChapterMap, unlinkNodes,
+} from '../core/authoring.js'
 import { makeLevel, makePoint } from '../core/making.js'
 import { saveLevel as pushLevel } from '../core/authoring.js'
 import { session } from '../core/session.js'
 import CreateSheet from '../components/CreateSheet.vue'
 import { coverStyle } from '../core/fileio.js'
-import { pickMedia } from '../core/media.js'
 import { endingNodes, openNodes } from '../core/chain.js'
 import { formatTime } from '../core/replays.js'
 
@@ -257,16 +334,14 @@ const props = defineProps({
   srScope: { type: String, default: null },
   // The chapter was opened inside a story playthrough
   inStory: { type: Boolean, default: false },
-  // Which versions this story has, and which is being played. Empty when the
-  // story was never published — there is nothing to choose between.
-  releases: { type: Array, default: () => [] },
+  // Какой релиз играется. Приходит из каталога; null означает черновик автора.
   releaseId: { type: String, default: null },
   storyId: { type: String, default: null },
   // The release, when one is being played: level names and the chapter's
   // contents come from it
   release: { type: Object, default: null },
 })
-const emit = defineEmits(['back', 'play', 'edit', 'start', 'runs', 'chapter', 'version'])
+const emit = defineEmits(['back', 'play', 'edit', 'start', 'runs', 'chapter'])
 
 // ref wraps the chapter in a reactive proxy: edits to nodes show up at once and
 // are written into the same library object that gets saved later.
@@ -289,6 +364,46 @@ const nodes = computed(() => (tick.value, [...(ch.value?.nodes || [])]))
 const map = ref(null)
 const sel = ref(null)
 const hotOpen = ref(false)
+const editing = ref(null)
+const editingChapter = ref(false)
+
+const chapterSlots = [
+  { key: 'image', label: 'Background for the whole chapter', cta: 'Choose a picture', kind: 'image' },
+]
+
+/*
+ * Правка точки и главы.
+ *
+ * Обе уезжают тем же сохранением карты, что и перетаскивание: карта главы
+ * отправляется целиком, и название с картинкой лежат в ней же. Отдельный запрос
+ * тут завёл бы возможность сохранить карту наполовину.
+ *
+ * Прежняя кнопка «Image» меняла фон только в браузере — pushMap() она не звала,
+ * так что на сервер он не уезжал вовсе.
+ */
+function applyNode({ title, ...extra }) {
+  const n = editing.value
+  editing.value = null
+  if (!n) return
+
+  n.name = title
+  n.image = extra.image || ''
+  n.outro = extra.outro || ''
+  lib.save()
+  if (session.status === 'signed-in') describeNode(storyId.value, ch.value.id, n)
+  tick.value++
+}
+
+function applyChapter({ title, ...extra }) {
+  editingChapter.value = false
+  if (!ch.value) return
+
+  ch.value.title = title
+  ch.value.image = extra.image || ''
+  lib.save()
+  if (session.status === 'signed-in') describeChapter(storyId.value, ch.value)
+  tick.value++
+}
 let drag = null
 
 const allAssets = computed(() => lib.assets())
@@ -351,7 +466,6 @@ async function chooseLevel(l) {
     if (node) sel.value = node.id
   }
   picking.value = null
-  pushMap()
   tick.value++
 }
 
@@ -361,7 +475,9 @@ function startHere() {
   const st = lib.story(storyId.value)
   if (!st || !sel.value) return
 
-  st.start = sel.value
+  // Повторный выбор уже назначенной точки снимает начало — тем же нажатием,
+  // каким оно ставится.
+  st.start = st.start === sel.value ? null : sel.value
   lib.save()
   if (session.status === 'signed-in') renameStory(st)
   sel.value = null
@@ -370,6 +486,9 @@ function startHere() {
 
 function unpin() {
   if (!sel.value) return
+  // Снятие точки — единственное, что до сих пор меняет карту набором: убрать
+  // точку значит убрать и все связи, которые в неё вели, а это правка чужих
+  // точек, возможно в других главах.
   lib.unpinNode(props.chapterId, sel.value)
   sel.value = null
   pushMap()
@@ -511,20 +630,127 @@ function onUp() {
     sel.value = sel.value === d.n.id ? null : d.n.id
     return
   }
-  if (!click) { lib.save(); pushMap(); return }
+  // Переехала одна точка — уезжает одна точка, а не вся карта следом за ней.
+  if (!click) {
+    lib.save()
+    if (session.status === 'signed-in') moveNode(storyId.value, ch.value.id, d.n)
+
+    return
+  }
   if (d.shift && sel.value && sel.value !== d.n.id) link(sel.value, d.n.id)
   else sel.value = d.n.id
 }
 
-function link(a, b) {
+/*
+ * Тянем связь от выбранной точки.
+ *
+ * Координаты в процентах карты — те же, в которых лежат сами точки, поэтому
+ * линия и точки всегда в одной системе, как бы карту ни масштабировали.
+ */
+const wire = ref(null)
+
+const handleStyle = computed(() => (selectedNode.value
+  ? { left: selectedNode.value.x + '%', top: selectedNode.value.y + '%' }
+  : {}))
+
+function pointOf(e) {
+  const r = map.value.getBoundingClientRect()
+
+  return {
+    x: ((e.clientX - r.left) / r.width) * 100,
+    y: ((e.clientY - r.top) / r.height) * 100,
+  }
+}
+
+function startWire() {
+  const from = { x: selectedNode.value.x, y: selectedNode.value.y }
+  wire.value = { from, to: from }
+
+  const move = (m) => (wire.value = { from, to: pointOf(m) })
+
+  const up = (u) => {
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', up)
+    wire.value = null
+
+    // Куда отпустили — та точка и вторая. Ищем по экрану, а не по процентам:
+    // попасть пальцем в кружок надёжнее, чем в его математический центр.
+    const under = document.elementFromPoint(u.clientX, u.clientY)
+    const target = under?.closest?.('.node')
+    const id = target?.dataset?.node
+
+    if (id && id !== sel.value) link(sel.value, id)
+  }
+
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up)
+}
+
+async function link(a, b) {
   // Связь направленная: shift-клик по второй точке ведёт от выбранной к ней.
   const from = ch.value.nodes.find((n) => n.id === a)
   if (!from) return
   from.next = from.next || []
   const i = from.next.indexOf(b)
-  if (i >= 0) from.next.splice(i, 1)
-  else from.next.push(b)
-  lib.save(); pushMap(); tick.value++
+
+  if (i >= 0) {
+    from.next.splice(i, 1)
+    lib.save()
+    tick.value++
+    await settle(() => unlinkNodes(storyId.value, a, b), () => from.next.push(b))
+
+    return
+  }
+
+  {
+    // Снять связь можно всегда, а вот провести — не всякую: кольцо запирает
+    // само себя и уносит с собой всё, что за ним. Сказать об этом надо здесь,
+    // пока автор помнит, какую линию он рисовал.
+    if (lib.wouldCycle(a, b)) {
+      failed.value = 'Так история замкнётся в кольцо: отсюда уже есть дорога обратно.'
+
+      return
+    }
+
+    if (lib.wouldRevisitChapter(a, b)) {
+      failed.value = 'Так путь вернётся в главу, из которой уже вышел. Внутри главы связывать можно, обратно в неё — нет.'
+
+      return
+    }
+
+    from.next.push(b)
+  }
+
+  failed.value = null
+  lib.save()
+  tick.value++
+
+  // Связь уезжает одна, а не вместе со всей картой: сервер проверяет кольца и
+  // возвраты именно на ней, и отказ приходит про неё, а не про «карту».
+  await settle(() => linkNodes(storyId.value, a, b), () => {
+    const at = from.next.indexOf(b)
+    if (at >= 0) from.next.splice(at, 1)
+  })
+}
+
+/*
+ * Отправить связь и, если сервер её не принял, вернуть экран к правде.
+ *
+ * Раньше связь уходила в очередь, а та при отказе 4xx молча выбрасывала запрос.
+ * На экране линия оставалась, на сервере её не было — и автор видел у себя
+ * кольцо, которого в истории не существует.
+ */
+async function settle(send, undo) {
+  if (session.status !== 'signed-in') return
+
+  try {
+    await send()
+  } catch (e) {
+    undo()
+    lib.save()
+    failed.value = e.message
+    tick.value++
+  }
 }
 
 // Картинка стоит на точке карты, а ролик играет после победы — оба спрашиваются
@@ -550,12 +776,12 @@ async function addLevel({ title, ...extra }) {
     return
   }
 
-  // Картинка и ролик принадлежат точке; карта уедет обычным сохранением.
+  // Картинка и ролик принадлежат точке, и уезжают правкой самой точки.
   const node = (ch.value.nodes || []).find((n) => n.levelId === l.id)
   if (node && (extra.image || extra.outro)) {
     Object.assign(node, extra)
     lib.save()
-    pushMap()
+    if (session.status === 'signed-in') describeNode(storyId.value, ch.value.id, node)
   }
 
   tick.value++
@@ -622,13 +848,24 @@ const names = (ids) => ids.map((id) => {
 })
 const endings = computed(() => (tick.value, ch.value ? names(endingNodes(ch.value)) : []))
 
-async function pic() {
-  const url = await pickMedia().catch((e) => { alert(e.message); return null })
-  if (url) { ch.value.image = url; lib.save(); tick.value++ }
-}
 </script>
 
 <style scoped>
+.handle {
+  position: absolute; width: 16px; height: 16px; margin: -30px 0 0 -8px;
+  border-radius: 50%; background: #e8c88f; border: 2px solid #2a1207;
+  cursor: crosshair; padding: 0; z-index: 5;
+  box-shadow: 0 0 0 4px rgba(232, 200, 143, 0.3);
+}
+.handle:hover { transform: scale(1.15); }
+.ghostwire line { stroke: #e8c88f; stroke-width: 0.4; stroke-dasharray: 1.5 1.5; }
+.linking {
+  position: absolute; left: 50%; transform: translateX(-50%); top: 10px; z-index: 6;
+  margin: 0; padding: 6px 14px; border-radius: 999px; font-size: 12px;
+  background: rgba(11, 16, 20, 0.9); border: 1px solid var(--line); color: var(--muted);
+  pointer-events: none;
+}
+.linking b { color: #e8c88f; font-weight: 500; }
 .screen { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; }
 .bar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;

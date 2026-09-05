@@ -11,16 +11,20 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@sparticuz/chromium": "^149.0.0",
     "polygon-clipping": "^0.15.7",
+    "puppeteer-core": "^25.10.0",
     "vue": "^3.5.13"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/server-renderer": "^3.5.13",
+    "@vue/test-utils": "^2.5.0",
     "eslint": "^10.9.1",
     "eslint-plugin-vue": "^10.10.0",
     "globals": "^17.12.0",
+    "jsdom": "^30.0.1",
     "vite": "^6.0.7"
   }
 }

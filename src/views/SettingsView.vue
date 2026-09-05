@@ -53,16 +53,8 @@ const setFps = (v) => {
   letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
 }
 
-.who { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.who img { width: 40px; height: 40px; border-radius: 50%; }
-.name { margin: 0; font-size: 15px; color: var(--text); }
-
 .note { margin: 0 0 12px; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
 .note code { font-size: 11.5px; }
-
-.gbtn { min-height: 34px; }
-.failed { margin-top: 12px; }
-.err { margin: 10px 0 0; font-size: 12.5px; color: #e0736b; }
 
 .field { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
 .field span { display: block; margin-bottom: 6px; }

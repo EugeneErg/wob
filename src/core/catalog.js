@@ -9,6 +9,7 @@
 
 import { api } from './api.js'
 import { hydrate, library } from './library.js'
+import { forgetReleases, noteRelease } from './releases.js'
 
 let shelf = null
 
@@ -41,12 +42,31 @@ export async function loadStory(storyId, { force = false } = {}) {
   if (complete && !force) return have
 
   const bundle = await api.get(`/api/catalog/${storyId}`)
+
+  // Содержимое идёт в библиотеку, чтобы его рисовать, а сам релиз — в память
+  // релизов, чтобы было с чем сверять повторы. Одно и то же тело, но вопросы к
+  // нему разные: библиотека отвечает «что показать», релиз — «то ли это, что
+  // играли».
   hydrate(bundle)
+  noteRelease(bundle)
 
   return bundle
 }
 
 /** Сбросить витрину — после входа и выхода она другая. */
+/*
+ * Взять чужую историю себе.
+ *
+ * Форкнуть можно любую выпущенную версию, включая канон: копия принадлежит
+ * взявшему, оригинал не трогается, а предложить правки обратно — отдельное
+ * решение автора копии.
+ *
+ * Кнопки к этому не было, потому что и маршрута не было: контроллер форков на
+ * сервере написан целиком, а дверей наружу у него не существовало.
+ */
+export const forkRelease = (releaseId) => api.post(`/api/releases/${releaseId}/fork`)
+
 export function forgetCatalog() {
   shelf = null
+  forgetReleases()
 }

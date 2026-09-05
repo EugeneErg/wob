@@ -11,7 +11,7 @@
 
 import { api } from './api.js'
 import * as lib from './library.js'
-import { versionOf } from './queue.js'
+
 import { session } from './session.js'
 
 export class NeedsAccount extends Error {
@@ -25,8 +25,32 @@ function assertSignedIn() {
   if (session.status !== 'signed-in') throw new NeedsAccount()
 }
 
-/** Версия истории, с которой сервер сверяет запись. */
-const version = (storyId) => versionOf(storyId)
+/**
+ * Выпустить историю.
+ *
+ * Черновик замораживается в релиз на сервере — здесь ничего не сохраняется и
+ * сохраняться не должно. Прежняя публикация делала снимок в localStorage, и это
+ * было изобретением: снимок не видел никто, кроме сделавшего его автора, а
+ * номер релиза считался по длине местного списка, так что на другой машине тот
+ * же релиз назывался бы иначе.
+ *
+ * Выпуск не делает историю доступной остальным. Для этого автор должен пройти
+ * в ней каждый уровень, и засчитывает это сервер по тому, что видел сам.
+ */
+export async function releaseStory(storyId) {
+  assertSignedIn()
+
+  return api.post(`/api/stories/${storyId}/publish`)
+}
+
+/** Версии, которые уже выпущены. */
+export async function storyReleases(storyId) {
+  assertSignedIn()
+
+  return api.get(`/api/stories/${storyId}/releases`)
+}
+
+
 
 export async function makeStory(title, extra = {}) {
   assertSignedIn()
@@ -47,7 +71,6 @@ export async function makeChapter(storyId, title, extra = {}) {
   const made = await api.post(`/api/stories/${storyId}/chapters`, {
     title,
     image: extra.image || 'linear-gradient(160deg,#1d3040,#0f1a20)',
-    version: version(storyId),
   })
 
   return lib.createChapter(storyId, made.id, title, extra)
@@ -65,7 +88,6 @@ export async function makeSpareLevel(storyId, name) {
   const made = await api.post(`/api/stories/${storyId}/levels`, {
     chapterId: null,
     name: name || 'Level',
-    version: version(storyId),
   })
 
   return lib.createLevelIn(storyId, made.id, name)
@@ -80,7 +102,6 @@ export async function makeLevel(storyId, chapterId, name, at = {}) {
     name: name || 'Level',
     x: at.x ?? 50,
     y: at.y ?? 50,
-    version: version(storyId),
   })
 
   return lib.createLevel(chapterId, { id: made.id, nodeId: made.nodeId }, name)
@@ -101,7 +122,6 @@ export async function makePoint(storyId, chapterId, levelId, at = {}) {
     levelId,
     x: at.x ?? 50,
     y: at.y ?? 50,
-    version: version(storyId),
   })
 
   return lib.pinLevel(chapterId, levelId, made.nodeId, at)

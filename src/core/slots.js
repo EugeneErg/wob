@@ -22,6 +22,18 @@ export const slotsFor = (storyId) => api.get(`/api/stories/${storyId}/slots`)
  */
 export const startSlot = (storyId) => api.post(`/api/stories/${storyId}/slots`)
 
+/*
+ * Можно ли доиграть начатое на более свежей версии.
+ *
+ * Спрашивается отдельно от переноса намеренно: предложение надо показать до
+ * того, как игрок согласится, иначе выбора у него нет. Прогон привязан к
+ * версии, на которой начат, и сам никуда не переезжает — содержимое,
+ * поменявшееся посреди истории, хуже устаревшего.
+ */
+export const upgradeOffer = (slotId) => api.get(`/api/slots/${slotId}/upgrade`)
+
+export const takeUpgrade = (slotId) => api.post(`/api/slots/${slotId}/upgrade`)
+
 export const renameSlot = (slotId, label) => api.patch(`/api/slots/${slotId}`, { label })
 
 /** Начать это прохождение заново, не теряя места на полке. */
@@ -36,4 +48,11 @@ export const deleteSlot = (slotId) => api.del(`/api/slots/${slotId}`)
  * на той версии, где началось: подменять контент под идущей игрой значит
  * двигать ворота посреди пути.
  */
-export const moveSlotTo = (slotId, releaseId) => api.patch(`/api/slots/${slotId}`, { releaseId })
+/*
+ * Ручного переноса прогона на выбранную версию больше нет.
+ *
+ * Он требовал, чтобы вызывающий сам решил, на какую версию можно переходить, —
+ * а решать это должен сервер: перейти можно, только если уровень, на котором
+ * игрок остановился, есть и в новой версии. Этим занимаются upgradeOffer() и
+ * takeUpgrade() выше.
+ */

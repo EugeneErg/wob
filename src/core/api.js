@@ -38,6 +38,29 @@ export class ApiError extends Error {
   }
 }
 
+/*
+ * Кто узнаёт о 401.
+ *
+ * Сессия перестала спрашивать сервер «кто я» на каждом открытии меню — она
+ * помнит ответ. У памяти есть цена: она может устареть, и единственный, кто об
+ * этом узнаёт первым, — очередной запрос, получивший 401. Поэтому отказ
+ * объявляется отсюда, а не проверяется заранее.
+ *
+ * Подписка, а не прямой вызов session.js: api.js лежит ниже сессии, и импорт
+ * вверх завёл бы цикл ради одной строчки.
+ */
+const unauthorized = new Set()
+
+export function onUnauthorized(fn) {
+  unauthorized.add(fn)
+
+  return () => unauthorized.delete(fn)
+}
+
+function announceUnauthorized() {
+  for (const fn of unauthorized) fn()
+}
+
 async function request(method, path, body) {
   if (method !== 'GET') await ensureCsrf()
 
@@ -60,6 +83,7 @@ async function request(method, path, body) {
   const data = text ? JSON.parse(text) : null
 
   if (!res.ok) {
+    if (res.status === 401) announceUnauthorized()
     const err = data?.error || {}
     throw new ApiError(res.status, err.code || 'error', err.message || `HTTP ${res.status}`, data)
   }
@@ -90,6 +114,7 @@ async function upload(path, file) {
   const data = text ? JSON.parse(text) : null
 
   if (!res.ok) {
+    if (res.status === 401) announceUnauthorized()
     const err = data?.error || {}
     throw new ApiError(res.status, err.code || 'error', err.message || `HTTP ${res.status}`, data)
   }
